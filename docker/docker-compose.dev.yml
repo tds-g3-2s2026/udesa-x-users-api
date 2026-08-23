@@ -1,0 +1,48 @@
+name: udesa-x-users-api
+
+services:
+  users-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
+      VALKEY_URL: redis://valkey:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: users
+      POSTGRES_PASSWORD: users
+      POSTGRES_DB: users
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U users -d users"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      # PostgreSQL 18 stores data in a version-specific subdirectory, so the mount
+      # goes on /var/lib/postgresql and not on /data as in earlier versions.
+      - postgres-data:/var/lib/postgresql
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
