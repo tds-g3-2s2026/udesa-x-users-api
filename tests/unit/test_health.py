@@ -1,6 +1,6 @@
 import pytest
 
-from users_api.health import DependencyStatus, build_report, check_postgres, check_valkey
+from users_api.health import DependencyStatus, build_report, check_postgres, check_redis
 
 
 class FakeConnection:
@@ -26,7 +26,7 @@ class FakeEngine:
         return FakeConnection(fails=self.fails)
 
 
-class FakeValkey:
+class FakeRedis:
     def __init__(self, *, fails: bool = False) -> None:
         self.fails = fails
 
@@ -47,31 +47,31 @@ async def test_unreachable_postgres_reports_the_error():
     assert "could not connect" in status.detail
 
 
-async def test_healthy_valkey_reports_ok():
-    status = await check_valkey(FakeValkey())
+async def test_healthy_redis_reports_ok():
+    status = await check_redis(FakeRedis())
     assert status.is_healthy
 
 
-async def test_unreachable_valkey_reports_the_error():
-    status = await check_valkey(FakeValkey(fails=True))
+async def test_unreachable_redis_reports_the_error():
+    status = await check_redis(FakeRedis(fails=True))
     assert not status.is_healthy
     assert "could not connect" in status.detail
 
 
 def test_all_dependencies_healthy_returns_200():
     body, status_code = build_report(
-        [DependencyStatus("postgres", True), DependencyStatus("valkey", True)]
+        [DependencyStatus("postgres", True), DependencyStatus("redis", True)]
     )
     assert status_code == 200
     assert body["status"] == "ok"
-    assert body["dependencies"] == {"postgres": "ok", "valkey": "ok"}
+    assert body["dependencies"] == {"postgres": "ok", "redis": "ok"}
 
 
-@pytest.mark.parametrize("failing", ["postgres", "valkey"])
+@pytest.mark.parametrize("failing", ["postgres", "redis"])
 def test_a_single_failing_dependency_returns_503(failing):
     statuses = [
         DependencyStatus(name, name != failing, None if name != failing else "no connection")
-        for name in ("postgres", "valkey")
+        for name in ("postgres", "redis")
     ]
     body, status_code = build_report(statuses)
     assert status_code == 503

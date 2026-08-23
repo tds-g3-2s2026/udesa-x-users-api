@@ -9,11 +9,11 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
-      VALKEY_URL: redis://valkey:6379/0
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
-      valkey:
+      redis:
         condition: service_healthy
 
   postgres:
@@ -34,12 +34,12 @@ services:
       # goes on /var/lib/postgresql and not on /data as in earlier versions.
       - postgres-data:/var/lib/postgresql
 
-  valkey:
-    image: valkey/valkey:8-alpine
+  redis:
+    image: redis:8-alpine
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10

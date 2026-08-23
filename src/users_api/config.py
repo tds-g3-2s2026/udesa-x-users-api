@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # No defaults on purpose: a missing URL stops the service from starting,
     # instead of failing on the first request.
     database_url: str
-    valkey_url: str
+    redis_url: str
 
 
 @lru_cache

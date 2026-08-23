@@ -2,7 +2,7 @@
 
 Microservicio backend responsable de la gestión de identidades, registro de usuarios, edición de perfiles, inicio de sesión (incluyendo Social Login) y seguridad.
 
-**Stack:** Python 3.13, FastAPI, SQLAlchemy 2 async con asyncpg, PostgreSQL y Valkey. Gestión de dependencias con uv, linting con Ruff.
+**Stack:** Python 3.13, FastAPI, SQLAlchemy 2 async con asyncpg, PostgreSQL y Redis. Gestión de dependencias con uv, linting con Ruff.
 
 ## Levantarlo en desarrollo
 
@@ -10,7 +10,7 @@ Microservicio backend responsable de la gestión de identidades, registro de usu
 docker compose -f docker/docker-compose.dev.yml up --build
 ```
 
-Levanta el servicio junto con PostgreSQL y Valkey. Cuando los tres estén arriba:
+Levanta el servicio junto con PostgreSQL y Redis. Cuando los tres estén arriba:
 
 ```bash
 curl http://localhost:8000/healthcheck
@@ -30,9 +30,9 @@ uv run pytest tests/unit
 Los de integración necesitan las dependencias reales levantadas:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml up -d postgres valkey
+docker compose -f docker/docker-compose.dev.yml up -d postgres redis
 DATABASE_URL=postgresql+asyncpg://users:users@localhost:5432/users \
-VALKEY_URL=redis://valkey:6379/0 \
+REDIS_URL=redis://localhost:6379/0 \
 uv run pytest tests/integration
 ```
 
@@ -54,10 +54,10 @@ src/users_api/
 └── main.py     # aplicación FastAPI
 tests/
 ├── unit/          # sin dependencias externas
-└── integration/   # contra PostgreSQL y Valkey reales
+└── integration/   # contra PostgreSQL y Redis reales
 docker/
 ├── Dockerfile              # multi-stage sobre python:3.13-slim
-└── docker-compose.dev.yml  # servicio, PostgreSQL y Valkey
+└── docker-compose.dev.yml  # servicio, PostgreSQL y Redis
 ```
 
 ## Code Guidelines (Reglas del Equipo)

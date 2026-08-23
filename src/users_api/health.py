@@ -21,12 +21,12 @@ async def check_postgres(engine: AsyncEngine) -> DependencyStatus:
     return DependencyStatus("postgres", True)
 
 
-async def check_valkey(client: Redis) -> DependencyStatus:
+async def check_redis(client: Redis) -> DependencyStatus:
     try:
         await client.ping()
     except Exception as error:
-        return DependencyStatus("valkey", False, str(error))
-    return DependencyStatus("valkey", True)
+        return DependencyStatus("redis", False, str(error))
+    return DependencyStatus("redis", True)
 
 
 def build_report(statuses: list[DependencyStatus]) -> tuple[dict, int]:
