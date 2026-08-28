@@ -1,0 +1,9 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  ci:
+    uses: tds-g3-2s2026/udesa-x-platform/.github/workflows/ci-python.yml@main
+    secrets: inherit
