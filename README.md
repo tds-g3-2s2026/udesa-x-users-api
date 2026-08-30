@@ -20,6 +20,132 @@ Responde `200` con `{"status": "ok", ...}` si ambas dependencias contestan, y `5
 
 La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 
+## Endpoints
+
+| Método y ruta | Qué hace |
+|---|---|
+| `GET /healthcheck` | Verifica PostgreSQL y Redis |
+| `POST /auth/register` | Crea la cuenta y envía el link de verificación |
+| `POST /auth/verify` | Consume el token y valida la cuenta |
+| `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
+| `POST /auth/login` | Devuelve el access token |
+
+En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.email
+```
+
+La documentación interactiva queda en `http://localhost:8000/docs`.
+
+## Migraciones
+
+El esquema se maneja con Alembic. En desarrollo la migración se aplica sola al levantar el
+compose; en producción es un job aparte del pipeline de despliegue.
+
+```bash
+uv run alembic upgrade head          # aplicar
+uv run alembic revision --autogenerate -m "descripcion"   # crear una nueva
+```
+
+## Probar el flujo completo a mano
+
+Levantá el stack y **dejá esa terminal abierta**: ahí aparece el link de verificación, que es
+lo que iría por correo.
+
+```bash
+docker compose -f docker/docker-compose.dev.yml down -v
+docker compose -f docker/docker-compose.dev.yml up --build
+```
+
+Los comandos que siguen van en otra terminal. Están en PowerShell porque es lo que usa el
+equipo; en bash se escriben igual sin las contrabarras.
+
+### 1. Registrarse
+
+```powershell
+curl.exe -X POST http://localhost:8000/auth/register -H "Content-Type: application/json" -d '{\"email\":\"Alumno@udesa.edu.ar\",\"handle\":\"@alumno_01\",\"password\":\"Contrasena1\",\"terms_accepted\":true}'
+```
+
+```json
+{"id":"6a0e1bc0-...","email":"alumno@udesa.edu.ar","handle":"@alumno_01"}
+```
+
+El email se guardó en minúsculas aunque se mandó con mayúscula: es `E1-H1 CA.7`.
+
+En la terminal del compose aparece el correo:
+
+```
+INFO users_api.email | Correo de verificación para alumno@udesa.edu.ar.
+Link válido por tiempo limitado: http://localhost:8000/auth/verify?token=P0oIiKeSRxIN...
+```
+
+### 2. Intentar entrar sin validar la cuenta
+
+```powershell
+curl.exe -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Contrasena1\"}'
+```
+
+```json
+{"status":403,"detail":"Revisá tu casilla de correo para validar la cuenta antes de ingresar", ...}
+```
+
+`E1-H1 CA.1` y `E1-H2 CA.4`. Notar que el mensaje es específico: las credenciales eran
+correctas, así que quien pregunta ya demostró ser el dueño de la cuenta.
+
+### 3. Validar la cuenta
+
+El JSON va por archivo porque PowerShell rompe las comillas anidadas.
+
+```powershell
+$log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
+$tok = [regex]::Match($log, 'token=([\w\-]+)').Groups[1].Value
+'{"token":"' + $tok + '"}' | Set-Content "$env:TEMP\token.json" -Encoding utf8 -NoNewline
+curl.exe -X POST http://localhost:8000/auth/verify -H "Content-Type: application/json" --data "@$env:TEMP\token.json"
+```
+
+```json
+{"status":"verified","handle":"@alumno_01"}
+```
+
+Repetir el mismo comando devuelve `400`: el token es de un solo uso.
+
+### 4. Entrar, con el email en mayúsculas
+
+```powershell
+curl.exe -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"ALUMNO@UDESA.EDU.AR\",\"password\":\"Contrasena1\"}'
+```
+
+```json
+{"access_token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...","token_type":"bearer","expires_in":900}
+```
+
+`expires_in` son los 15 minutos de `E1-H2 CA.1`. Pegando el token en
+[jwt.io](https://jwt.io) se ven `alg: EdDSA` y los claims `sub`, `role` y `jti`.
+
+También funciona entrando con el handle en lugar del email.
+
+### 5. Bloqueo por intentos fallidos
+
+```powershell
+foreach ($i in 1..6) { curl.exe -s -o NUL -w "intento $i -> %{http_code}`n" -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Mala1234\"}' }
+```
+
+```
+intento 1 -> 401
+intento 2 -> 401
+intento 3 -> 401
+intento 4 -> 401
+intento 5 -> 401
+intento 6 -> 429
+```
+
+`E1-H2 CA.2`. A partir del sexto, **la contraseña correcta tampoco entra**: devuelve `429`
+hasta que pasen los 15 minutos. La clave en Redis tiene TTL, así que el desbloqueo es
+automático.
+
+Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
+
 ## Correr los tests
 
 ```bash
@@ -37,6 +163,10 @@ uv run pytest tests/integration
 ```
 
 Sin esas variables los de integración se saltean, para que la suite corra en cualquier máquina.
+
+Los de integración aplican la migración real antes de correr, así que también verifican que el
+esquema coincida con los modelos: una columna agregada sin su migración falla acá y no en
+producción.
 
 ## Lint
 

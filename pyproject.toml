@@ -10,6 +10,10 @@ dependencies = [
     "asyncpg>=0.30",
     "redis>=5.2",
     "pydantic-settings>=2.7",
+    "pydantic[email]>=2.10",
+    "argon2-cffi>=25.1",
+    "pyjwt[crypto]>=2.10",
+    "alembic>=1.14",
 ]
 
 [dependency-groups]
@@ -39,3 +43,9 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src"]
+# SQLAlchemy async runs on greenlets. Without this, coverage does not trace what
+# happens inside them and the service layer looks far less covered than it is.
+concurrency = ["greenlet", "thread"]

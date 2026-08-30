@@ -10,6 +10,8 @@ COPY pyproject.toml ./
 RUN uv sync --no-dev --no-install-project
 
 COPY src/ ./src/
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 RUN uv sync --no-dev
 
 # Final stage: only the venv and the source, without uv or build tooling.
@@ -20,6 +22,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --from=builder --chown=app:app /app/src /app/src
+COPY --from=builder --chown=app:app /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=app:app /app/migrations /app/migrations
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
