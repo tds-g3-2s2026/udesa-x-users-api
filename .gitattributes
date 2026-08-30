@@ -1,0 +1,31 @@
+# Normalizacion de fin de linea.
+#
+# El repo se trabaja desde Windows, macOS y Linux, y el CI corre en Linux. Sin esto,
+# cada quien commitea con el fin de linea de su maquina y aparecen diffs de archivos
+# enteros donde no se cambio ni una palabra.
+#
+# `text=auto eol=lf` gana por encima de `core.autocrlf` de cada maquina, asi que no
+# depende de que los cuatro tengan la misma configuracion de git.
+#
+# Es la contraparte de `end_of_line = lf` del .editorconfig: el .editorconfig se lo
+# dice al editor, esto se lo dice a git.
+
+* text=auto eol=lf
+
+# Los scripts tienen que ser LF si o si: un .sh con CRLF falla en Linux con un
+# "bad interpreter: No such file or directory" que no dice nada util.
+*.sh   text eol=lf
+
+# Binarios: que git no los toque.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.avif binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.zip  binary
