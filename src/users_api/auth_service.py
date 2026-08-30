@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+import jwt
 from redis.asyncio import Redis
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from users_api.email import EmailSender
 from users_api.errors import ProblemError
 from users_api.models import EmailVerificationToken, User
 from users_api.security import (
+    decode_access_token,
     generate_verification_token,
     hash_password,
     hash_token,
@@ -22,10 +24,15 @@ from users_api.security import (
 INVALID_CREDENTIALS = "Credenciales inválidas"
 SUSPENDED_ACCOUNT = "Cuenta suspendida"
 UNVERIFIED_ACCOUNT = "Revisá tu casilla de correo para validar la cuenta antes de ingresar"
+INVALID_TOKEN = "El token no es válido"
 
 
 def lockout_key(identifier: str) -> str:
     return f"login:failed:{identifier.strip().lower()}"
+
+
+def revoked_key(jti: str) -> str:
+    return f"revoked:jti:{jti}"
 
 
 @dataclass
@@ -198,3 +205,29 @@ class AuthService:
         failures = await self.redis.incr(key)
         if failures == 1:
             await self.redis.expire(key, self.settings.login_lockout_minutes * 60)
+
+    # --- logout, E1-H3 ------------------------------------------------------
+
+    async def logout(self, token: str) -> None:
+        """Revoke the token's jti, E1-H3 CA.1.
+
+        A JWT is self-contained and the server never stored it, so "logging out"
+        means recording its jti as revoked until it would have expired anyway.
+        """
+        try:
+            claims = decode_access_token(self.signing_key.public_key(), token)
+        except jwt.ExpiredSignatureError:
+            # Already unusable on its own; revoking it changes nothing, so this
+            # is not an error. Logout is idempotent.
+            return
+        except jwt.InvalidTokenError as exc:
+            raise ProblemError(
+                status=401,
+                code="invalid-token",
+                title="No se pudo cerrar la sesión",
+                detail=INVALID_TOKEN,
+            ) from exc
+
+        expires_at = datetime.fromtimestamp(claims["exp"], tz=UTC)
+        ttl = int((expires_at - datetime.now(UTC)).total_seconds())
+        await self.redis.set(revoked_key(claims["jti"]), "1", ex=ttl)

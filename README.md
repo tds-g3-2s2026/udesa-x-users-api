@@ -29,6 +29,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/verify` | Consume el token y valida la cuenta |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token |
+| `POST /auth/logout` | Revoca el token de sesión activo |
 
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
@@ -143,6 +144,28 @@ intento 6 -> 429
 `E1-H2 CA.2`. A partir del sexto, **la contraseña correcta tampoco entra**: devuelve `429`
 hasta que pasen los 15 minutos. La clave en Redis tiene TTL, así que el desbloqueo es
 automático.
+
+### 6. Cerrar sesión
+
+Repetí el paso 4 para conseguir un token nuevo (el de más arriba ya gastó intentos en el paso
+anterior) y guardalo en una variable:
+
+```powershell
+$body = curl.exe -s -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Contrasena1\"}' | ConvertFrom-Json
+$token = $body.access_token
+
+curl.exe -s -o NUL -w "%{http_code}`n" -X POST http://localhost:8000/auth/logout -H "Authorization: Bearer $token"
+```
+
+```
+204
+```
+
+`E1-H3 CA.1`. El token queda revocado en Redis con el mismo tiempo de vida que le quedaba:
+
+```powershell
+docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:*"
+```
 
 Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
 
