@@ -35,6 +35,9 @@ class Api:
             "/auth/login", json={"identifier": identifier, "password": password}
         )
 
+    async def logout(self, token: str):
+        return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+
     def last_verification_token(self) -> str:
         # The console adapter writes the link; this is what the mail would carry.
         links = re.findall(r"token=([\w\-]+)", self.caplog.text)
@@ -284,6 +287,27 @@ async def test_e1_h2_ca5_suspension_is_not_revealed_without_the_password(api):
     response = await api.login(password="Incorrecta1")
     assert response.status_code == 401
     assert response.json()["detail"] == "Credenciales inválidas"
+
+
+# --- E1-H3 CA.1 ---------------------------------------------------------------
+
+
+async def test_e1_h3_ca1_token_is_revoked_on_logout(api):
+    import jwt
+
+    await api.register_and_verify()
+    token = (await api.login()).json()["access_token"]
+
+    assert (await api.logout(token)).status_code == 204
+
+    claims = jwt.decode(
+        token,
+        api.app.state.signing_key.public_key(),
+        algorithms=["EdDSA"],
+        options={"verify_exp": False},
+    )
+    ttl = await api.app.state.redis.ttl(f"revoked:jti:{claims['jti']}")
+    assert 0 < ttl <= 15 * 60
 
 
 # --- formato de error ---------------------------------------------------------

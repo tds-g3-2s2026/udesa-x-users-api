@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from users_api.auth_service import AuthService
 from users_api.db import session_scope
@@ -30,6 +31,11 @@ async def get_auth_service(request: Request) -> AuthService:
 
 
 ServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+# Rejects a missing or malformed Authorization header before the service ever
+# sees the request, with the standard 401/403.
+bearer_scheme = HTTPBearer()
+BearerDep = Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)]
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -72,3 +78,9 @@ async def login(payload: LoginRequest, service: ServiceDep) -> LoginResponse:
         password=payload.password,
     )
     return LoginResponse(access_token=token, expires_in=expires_in)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(credentials: BearerDep, service: ServiceDep) -> None:
+    """Revoke the caller's token, E1-H3 CA.1."""
+    await service.logout(credentials.credentials)
