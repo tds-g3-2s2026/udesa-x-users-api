@@ -1,76 +1,15 @@
 import os
-import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+
+from tests.integration.helpers import REGISTRATION, set_user_flag
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
     reason="requires DATABASE_URL and REDIS_URL pointing at real services",
 )
-
-REGISTRATION = {
-    "email": "Alumno@udesa.edu.ar",
-    "handle": "@alumno_01",
-    "password": "Contrasena1",
-    "terms_accepted": True,
-}
-
-
-class Api:
-    """Drives the app and reads back the verification link from the log."""
-
-    def __init__(self, client, app, caplog):
-        self.client = client
-        self.app = app
-        self.caplog = caplog
-
-    async def register(self, **overrides):
-        return await self.client.post("/auth/register", json={**REGISTRATION, **overrides})
-
-    async def login(self, identifier=REGISTRATION["email"], password=REGISTRATION["password"]):
-        return await self.client.post(
-            "/auth/login", json={"identifier": identifier, "password": password}
-        )
-
-    async def logout(self, token: str):
-        return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
-
-    def last_verification_token(self) -> str:
-        # The console adapter writes the link; this is what the mail would carry.
-        links = re.findall(r"token=([\w\-]+)", self.caplog.text)
-        assert links, "no se encontro ningun link de verificacion en el log"
-        return links[-1]
-
-    async def verify_last(self):
-        return await self.client.post(
-            "/auth/verify", json={"token": self.last_verification_token()}
-        )
-
-    async def register_and_verify(self, **overrides):
-        await self.register(**overrides)
-        await self.verify_last()
-
-
-@pytest.fixture
-async def api(clean_state, caplog):
-    import logging
-
-    from users_api.main import app
-
-    caplog.set_level(logging.INFO)
-    async with (
-        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
-        app.router.lifespan_context(app),
-    ):
-        yield Api(client, app, caplog)
-
-
-async def set_user_flag(app, column: str, value) -> None:
-    async with app.state.engine.begin() as connection:
-        await connection.execute(text(f"UPDATE users SET {column} = :value"), {"value": value})
 
 
 # --- E1-H1 CA.1 ---------------------------------------------------------------
@@ -153,7 +92,7 @@ async def test_e1_h1_ca6_expired_token_is_refused_and_can_be_resent(api):
 
 async def test_e1_h1_ca6_token_cannot_be_reused(api):
     await api.register()
-    token = api.last_verification_token()
+    token = api.last_emailed_token()
 
     assert (await api.client.post("/auth/verify", json={"token": token})).status_code == 200
     assert (await api.client.post("/auth/verify", json={"token": token})).status_code == 400

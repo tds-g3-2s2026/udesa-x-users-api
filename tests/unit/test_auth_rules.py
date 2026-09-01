@@ -6,7 +6,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
-from users_api.schemas import LoginRequest, RegisterRequest
+from users_api.schemas import LoginRequest, RegisterRequest, ResetPasswordRequest
 from users_api.security import (
     TOKEN_ALGORITHM,
     hash_password,
@@ -177,6 +177,28 @@ def test_signing_key_is_generated_when_none_is_configured():
     # Development convenience: no key means an ephemeral one, so nothing has to
     # be versioned. Production passes the key through SOPS.
     assert isinstance(load_signing_key(None), Ed25519PrivateKey)
+
+
+# --- E1-H5 CA.3: reset con confirmacion doble ---------------------------------
+
+
+def reset_payload(**overrides):
+    valid = {"token": "un-token", "password": "Contrasena2", "password_confirmation": "Contrasena2"}
+    return ResetPasswordRequest(**{**valid, **overrides})
+
+
+def test_e1_h5_ca3_reset_requires_matching_confirmation_and_the_password_policy():
+    assert reset_payload().password == "Contrasena2"
+
+    # La confirmacion tiene que coincidir.
+    with pytest.raises(ValidationError):
+        reset_payload(password_confirmation="Contrasena3")
+
+    # Y la contrasena nueva pasa por la misma politica que E1-H1 CA.4, porque
+    # las dos clases validan con la misma funcion.
+    for invalid in ("Corta1", "contrasena2", "ContrasenaSinNumero"):
+        with pytest.raises(ValidationError):
+            reset_payload(password=invalid, password_confirmation=invalid)
 
 
 # --- verification tokens ------------------------------------------------------

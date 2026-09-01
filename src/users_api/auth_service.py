@@ -1,15 +1,17 @@
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import jwt
 from redis.asyncio import Redis
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from users_api import rate_limit
 from users_api.config import Settings
 from users_api.email import EmailSender
 from users_api.errors import ProblemError
-from users_api.models import EmailVerificationToken, User
+from users_api.models import EmailVerificationToken, PasswordResetToken, User
 from users_api.security import (
     decode_access_token,
     generate_verification_token,
@@ -25,6 +27,8 @@ INVALID_CREDENTIALS = "Credenciales inválidas"
 SUSPENDED_ACCOUNT = "Cuenta suspendida"
 UNVERIFIED_ACCOUNT = "Revisá tu casilla de correo para validar la cuenta antes de ingresar"
 INVALID_TOKEN = "El token no es válido"
+RESET_LINK_INVALID = "El link de recuperación es inválido o expiró. Pedí uno nuevo"
+SAME_PASSWORD = "La contraseña nueva tiene que ser distinta de la actual"
 
 
 def lockout_key(identifier: str) -> str:
@@ -33,6 +37,21 @@ def lockout_key(identifier: str) -> str:
 
 def revoked_key(jti: str) -> str:
     return f"revoked:jti:{jti}"
+
+
+def sessions_revoked_key(user_id: uuid.UUID) -> str:
+    """Marks the moment every session of an account stopped being valid.
+
+    The jti list above revokes one token; this revokes all of them at once,
+    which is what E1-H5 CA.7 needs. They are different mechanisms because the
+    service never stored the tokens it issued, so there is no list of jtis to
+    walk: what gets compared is the iat of each token against this instant.
+    """
+    return f"revoked:user:{user_id}"
+
+
+def reset_request_key(identifier: str) -> str:
+    return f"reset:requested:{identifier.strip().lower()}"
 
 
 @dataclass
@@ -170,7 +189,7 @@ class AuthService:
                 detail=UNVERIFIED_ACCOUNT,
             )
 
-        await self.redis.delete(lockout_key(identifier))
+        await rate_limit.reset(self.redis, lockout_key(identifier))
         token = issue_access_token(
             self.signing_key,
             subject=user.id,
@@ -180,8 +199,8 @@ class AuthService:
         return token, self.settings.access_token_minutes * 60
 
     async def guard_lockout(self, identifier: str) -> None:
-        failures = await self.redis.get(lockout_key(identifier))
-        if failures is not None and int(failures) >= self.settings.login_max_attempts:
+        failures = await rate_limit.count(self.redis, lockout_key(identifier))
+        if failures >= self.settings.login_max_attempts:
             # E1-H2 CA.2. 429 and not 401: what is being rejected is the rate,
             # not the credentials.
             raise ProblemError(
@@ -201,10 +220,11 @@ class AuthService:
         The counter is keyed by identifier and not by account id, so attempts
         against addresses that do not exist are counted the same way.
         """
-        key = lockout_key(identifier)
-        failures = await self.redis.incr(key)
-        if failures == 1:
-            await self.redis.expire(key, self.settings.login_lockout_minutes * 60)
+        await rate_limit.hit(
+            self.redis,
+            lockout_key(identifier),
+            window_seconds=self.settings.login_lockout_minutes * 60,
+        )
 
     # --- logout, E1-H3 ------------------------------------------------------
 
@@ -231,3 +251,113 @@ class AuthService:
         expires_at = datetime.fromtimestamp(claims["exp"], tz=UTC)
         ttl = int((expires_at - datetime.now(UTC)).total_seconds())
         await self.redis.set(revoked_key(claims["jti"]), "1", ex=ttl)
+
+    async def revoke_all_sessions(self, user_id: uuid.UUID, *, now: datetime) -> None:
+        """Invalidate every token issued for this account before now.
+
+        E1-H5 CA.7 and, later, E1-H13 CA.3 need the same thing, so this lives on
+        its own instead of inline in the reset. The TTL is the lifetime of an
+        access token: past that there is nothing left to revoke, because every
+        token issued before this instant already expired on its own.
+        """
+        await self.redis.set(
+            sessions_revoked_key(user_id),
+            int(now.timestamp()),
+            ex=self.settings.access_token_minutes * 60,
+        )
+
+    # --- password reset, E1-H5 ----------------------------------------------
+
+    async def forgot_password(self, identifier: str) -> None:
+        """Send the reset link. Always answers the same, E1-H5 CA.4.
+
+        The rate limit is counted before looking the account up, and it is
+        counted whether or not it exists: a counter that only moved for real
+        accounts would turn the limit itself into the enumeration oracle that
+        CA.4 is avoiding.
+        """
+        await self.guard_reset_limit(identifier)
+
+        normalised = identifier.strip().lower()
+        user = await self.session.scalar(
+            select(User).where(or_(User.email == normalised, User.handle == normalised))
+        )
+        if user is None or not user.can_log_in:
+            return
+
+        now = datetime.now(UTC)
+        raw_token = generate_verification_token()
+        self.session.add(
+            PasswordResetToken(
+                user_id=user.id,
+                token_hash=hash_token(raw_token),
+                # E1-H5 CA.1: ten minutes, and not the twenty four hours of the
+                # verification link: this one opens the door to the account.
+                expires_at=now + timedelta(minutes=self.settings.password_reset_minutes),
+            )
+        )
+        reset_url = f"{self.settings.public_base_url}/auth/reset-password?token={raw_token}"
+        await self.email_sender.send_password_reset(to=user.email, reset_url=reset_url)
+
+    async def guard_reset_limit(self, identifier: str) -> None:
+        """E1-H5 CA.8: cap how many links can be asked for the same identifier."""
+        requests = await rate_limit.hit(
+            self.redis,
+            reset_request_key(identifier),
+            window_seconds=self.settings.password_reset_window_minutes * 60,
+        )
+        if requests > self.settings.password_reset_max_requests:
+            raise ProblemError(
+                status=429,
+                code="too-many-reset-requests",
+                title="Demasiados pedidos",
+                detail=(
+                    "Se pidieron demasiados links de recuperación. Esperá "
+                    f"{self.settings.password_reset_window_minutes} minutos"
+                ),
+                headers={"Retry-After": str(self.settings.password_reset_window_minutes * 60)},
+            )
+
+    async def reset_password(self, raw_token: str, new_password: str) -> User:
+        now = datetime.now(UTC)
+        token = await self.session.scalar(
+            select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_token(raw_token))
+        )
+        if token is None or not token.is_usable(now):
+            # E1-H5 CA.2 and CA.5: expired, unknown or already used all answer
+            # the same, pointing at asking for a new link.
+            raise ProblemError(
+                status=400,
+                code="reset-token-invalid",
+                title="No se pudo cambiar la contraseña",
+                detail=RESET_LINK_INVALID,
+            )
+
+        user = await self.session.get(User, token.user_id)
+
+        # E1-H5 CA.6, checked against the stored hash before replacing it.
+        if verify_password(new_password, user.password_hash):
+            raise ProblemError(
+                status=400,
+                code="password-unchanged",
+                title="No se pudo cambiar la contraseña",
+                detail=SAME_PASSWORD,
+            )
+
+        user.password_hash = hash_password(new_password)
+
+        # E1-H5 CA.5: the consumed link dies, and so does every other open link
+        # of this account. Otherwise a second link sent minutes earlier would
+        # still be a way in after the password already changed.
+        await self.session.execute(
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=now)
+        )
+
+        # E1-H5 CA.7.
+        await self.revoke_all_sessions(user.id, now=now)
+        return user

@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     # E1-H1 CA.6: the verification token expires and can be requested again.
     email_verification_hours: int = 24
 
+    # E1-H5 CA.1: the reset link is short lived, ten minutes.
+    password_reset_minutes: int = 10
+
+    # E1-H5 CA.8: three reset requests per hour for the same identifier. The
+    # limit also protects the mail provider, not only the account.
+    password_reset_max_requests: int = 3
+    password_reset_window_minutes: int = 60
+
     # Base for the verification link sent by email.
     public_base_url: str = "http://localhost:8000"
 

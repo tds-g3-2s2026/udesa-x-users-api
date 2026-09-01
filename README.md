@@ -30,6 +30,8 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token |
 | `POST /auth/logout` | Revoca el token de sesión activo |
+| `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
+| `POST /auth/reset-password` | Consume el link y cambia la contraseña |
 
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
@@ -166,6 +168,50 @@ curl.exe -s -o NUL -w "%{http_code}`n" -X POST http://localhost:8000/auth/logout
 ```powershell
 docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:*"
 ```
+
+### 7. Recuperar la contraseña olvidada
+
+```powershell
+curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\"}'
+```
+
+```json
+{"status":"accepted"}
+```
+
+`E1-H5 CA.4`. La respuesta es esta misma para una dirección que no existe: probá con
+`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el link, que dura diez
+minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
+
+```
+INFO users_api.email | Correo de recuperación para alumno@udesa.edu.ar.
+Link válido por tiempo limitado: http://localhost:8000/auth/reset-password?token=VMT1tI_Hy7...
+```
+
+Con ese token se cambia la contraseña. La confirmación va aparte y tiene que coincidir
+(`E1-H5 CA.3`):
+
+```powershell
+$log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
+$tok = [regex]::Match($log, 'reset-password\?token=([\w\-]+)').Groups[1].Value
+'{"token":"' + $tok + '","password":"Contrasena2","password_confirmation":"Contrasena2"}' | Set-Content "$env:TEMP\reset.json" -Encoding utf8 -NoNewline
+curl.exe -X POST http://localhost:8000/auth/reset-password -H "Content-Type: application/json" --data "@$env:TEMP\reset.json"
+```
+
+```json
+{"status":"reset","handle":"@alumno_01"}
+```
+
+Repetir el mismo comando devuelve `400`: el link es de un solo uso (`E1-H5 CA.5`). Reintentar
+con la contraseña vieja, `Contrasena1`, también da `400`, porque la nueva tiene que ser distinta
+(`E1-H5 CA.6`). Y todas las sesiones que estaban abiertas quedaron revocadas de una (`E1-H5
+CA.7`):
+
+```powershell
+docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:user:*"
+```
+
+Pedir más de tres links en una hora para el mismo identificador devuelve `429` (`E1-H5 CA.8`).
 
 Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
 

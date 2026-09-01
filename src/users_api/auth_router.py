@@ -6,11 +6,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from users_api.auth_service import AuthService
 from users_api.db import session_scope
 from users_api.schemas import (
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
     ResendVerificationRequest,
+    ResetPasswordRequest,
     VerifyRequest,
 )
 
@@ -84,3 +86,25 @@ async def login(payload: LoginRequest, service: ServiceDep) -> LoginResponse:
 async def logout(credentials: BearerDep, service: ServiceDep) -> None:
     """Revoke the caller's token, E1-H3 CA.1."""
     await service.logout(credentials.credentials)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+async def forgot_password(payload: ForgotPasswordRequest, service: ServiceDep) -> dict[str, str]:
+    """Ask for a reset link with the email or the handle, E1-H5.
+
+    The answer is always this one, registered or not: E1-H5 CA.4 keeps the
+    endpoint from telling an attacker which accounts exist.
+    """
+    await service.forgot_password(payload.identifier)
+    return {"status": "accepted"}
+
+
+@router.post("/reset-password")
+async def reset_password(payload: ResetPasswordRequest, service: ServiceDep) -> dict[str, str]:
+    """Consume the link and set the new password, E1-H5.
+
+    No Authorization header: whoever gets here is precisely the person who
+    cannot log in. What proves ownership is the token that arrived by email.
+    """
+    user = await service.reset_password(payload.token, payload.password)
+    return {"status": "reset", "handle": user.handle}

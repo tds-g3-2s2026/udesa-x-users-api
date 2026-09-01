@@ -14,6 +14,8 @@ class EmailSender(Protocol):
 
     async def send_verification(self, *, to: str, verification_url: str) -> None: ...
 
+    async def send_password_reset(self, *, to: str, reset_url: str) -> None: ...
+
 
 class ConsoleEmailSender:
     """Writes the message to the log instead of sending it.
@@ -27,4 +29,11 @@ class ConsoleEmailSender:
             "Correo de verificación para %s. Link válido por tiempo limitado: %s",
             to,
             verification_url,
+        )
+
+    async def send_password_reset(self, *, to: str, reset_url: str) -> None:
+        logger.info(
+            "Correo de recuperación para %s. Link válido por tiempo limitado: %s",
+            to,
+            reset_url,
         )
