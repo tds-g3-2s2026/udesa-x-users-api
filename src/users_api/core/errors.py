@@ -71,8 +71,9 @@ async def problem_error_handler(request: Request, exc: ProblemError) -> JSONResp
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     """Translate FastAPI validation failures into the same format.
 
-    Covers E1-H1 CA.5: empty or null required fields are rejected before any
-    business logic runs, and the client gets one entry per offending field.
+    Empty or null required fields are rejected before any business logic runs,
+    and the client gets one entry per offending field so it knows which input to
+    highlight.
     """
     errors = [
         {

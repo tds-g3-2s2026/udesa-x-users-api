@@ -1,8 +1,8 @@
-"""Reusable counter with a expiry window, on top of Redis. T-26.
+"""Reusable counter with an expiry window, on top of Redis.
 
-Three stories need the same shape of limit: the login lockout of E1-H2, the
-reset requests of E1-H5 CA.8 and, later, E5-H2 CA.3. Keeping one implementation
-means the window semantics are decided once.
+Several flows need the same shape of limit: the login lockout, the cap on reset
+requests and, later, the admin login. Keeping one implementation means the
+window semantics are decided once.
 
 The window starts on the first mark and is not extended by the ones that follow,
 so a caller that keeps hitting the limit still gets out after the configured

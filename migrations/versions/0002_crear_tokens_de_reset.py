@@ -1,14 +1,14 @@
 """crear tokens de reset de contrasena
 
-Agrega la tabla que sostiene el flujo de recuperación de E1-H5. Tiene la misma
-forma que email_verification_tokens porque resuelve el mismo problema —un token
-de un solo uso con vencimiento— pero se mantiene separada: el link de reset dura
-diez minutos y el de validación veinticuatro horas, y consumir uno no puede
-tocar al otro.
+Agrega la tabla que sostiene el flujo de recuperación de contraseña. Tiene la
+misma forma que email_verification_tokens porque resuelve el mismo problema —un
+token de un solo uso con vencimiento— pero se mantiene separada: el link de
+reset dura diez minutos y el de validación veinticuatro horas, y consumir uno no
+puede tocar al otro.
 
-El índice único sobre token_hash es lo que hace cumplir el CA.5: solo se guarda
-el digest, nunca el token, así que un dump de la base no alcanza para tomar una
-cuenta ajena.
+Del token solo se guarda el digest, nunca el valor original, así que un dump de
+la base no alcanza para tomar una cuenta ajena. El índice único sobre token_hash
+es además lo que permite buscarlo al consumirlo.
 
 Revision ID: 3c9d2f4a17be
 Revises: f61a1b957893

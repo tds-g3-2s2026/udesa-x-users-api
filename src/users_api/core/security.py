@@ -17,7 +17,7 @@ _hasher = PasswordHasher()
 
 # A dummy hash to verify against when the user does not exist, so that a missing
 # account and a wrong password take the same time. Without this, response timing
-# tells an attacker which emails are registered, which is what E1-H2 CA.3 avoids.
+# tells an attacker which emails are registered.
 _DUMMY_HASH = _hasher.hash("not-a-real-password")
 
 TOKEN_ALGORITHM = "EdDSA"
@@ -39,11 +39,11 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 
 
 def hash_token(raw_token: str) -> str:
-    """Digest used to store verification tokens without keeping the token itself."""
+    """Digest used to store emailed tokens without keeping the token itself."""
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
-def generate_verification_token() -> str:
+def generate_emailed_token() -> str:
     return secrets.token_urlsafe(32)
 
 
@@ -77,7 +77,8 @@ def issue_access_token(
     """Sign the access token described in ARQUITECTURA.md: sub, role and jti.
 
     EdDSA and not HS256: posts-api will validate these tokens, and a shared
-    secret between services is exactly what the architecture rules out.
+    secret between services is exactly what the architecture rules out. The jti
+    is what allows revoking one token without touching the rest.
     """
     issued_at = now or datetime.now(UTC)
     payload = {

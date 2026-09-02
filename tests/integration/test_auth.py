@@ -12,7 +12,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# --- E1-H1 CA.1 ---------------------------------------------------------------
+# --- validacion de la cuenta por correo ---------------------------------------
 
 
 async def test_e1_h1_ca1_login_denied_until_account_is_verified(api):
@@ -27,7 +27,7 @@ async def test_e1_h1_ca1_login_denied_until_account_is_verified(api):
     assert (await api.login()).status_code == 200
 
 
-# --- E1-H1 CA.2 ---------------------------------------------------------------
+# --- email unico y con formato valido -----------------------------------------
 
 
 async def test_e1_h1_ca2_rejects_duplicate_email(api):
@@ -42,7 +42,7 @@ async def test_e1_h1_ca2_rejects_malformed_email(api):
     assert invalid.json()["errors"][0]["field"] == "email"
 
 
-# --- E1-H1 CA.3 ---------------------------------------------------------------
+# --- handle unico y con formato valido ----------------------------------------
 
 
 async def test_e1_h1_ca3_rejects_duplicate_handle(api):
@@ -55,7 +55,7 @@ async def test_e1_h1_ca3_rejects_handle_without_at_sign(api):
     assert (await api.register(handle="alumno_01")).status_code == 422
 
 
-# --- E1-H1 CA.5 ---------------------------------------------------------------
+# --- campos obligatorios ------------------------------------------------------
 
 
 async def test_e1_h1_ca5_rejects_empty_required_fields(api):
@@ -65,7 +65,7 @@ async def test_e1_h1_ca5_rejects_empty_required_fields(api):
     assert {"handle", "password"} <= offending
 
 
-# --- E1-H1 CA.6 ---------------------------------------------------------------
+# --- vencimiento y reenvio del link -------------------------------------------
 
 
 async def test_e1_h1_ca6_expired_token_is_refused_and_can_be_resent(api):
@@ -98,7 +98,7 @@ async def test_e1_h1_ca6_token_cannot_be_reused(api):
     assert (await api.client.post("/auth/verify", json={"token": token})).status_code == 400
 
 
-# --- E1-H1 CA.7 ---------------------------------------------------------------
+# --- unicidad sin distinguir mayusculas ---------------------------------------
 
 
 async def test_e1_h1_ca7_email_uniqueness_is_case_insensitive(api):
@@ -112,7 +112,7 @@ async def test_e1_h1_ca7_login_works_with_any_capitalisation(api):
     assert (await api.login(identifier="ALUMNO@UDESA.EDU.AR")).status_code == 200
 
 
-# --- E1-H2 CA.1 ---------------------------------------------------------------
+# --- token de acceso ----------------------------------------------------------
 
 
 async def test_e1_h2_ca1_login_returns_a_jwt_with_expiration(api):
@@ -140,7 +140,7 @@ async def test_e1_h2_ca1_login_also_works_with_the_handle(api):
     assert (await api.login(identifier=REGISTRATION["handle"])).status_code == 200
 
 
-# --- E1-H2 CA.2 ---------------------------------------------------------------
+# --- bloqueo por intentos fallidos --------------------------------------------
 
 
 async def test_e1_h2_ca2_locks_the_account_after_five_failed_attempts(api):
@@ -169,7 +169,7 @@ async def test_e1_h2_ca2_a_successful_login_clears_the_counter(api):
         assert (await api.login(password="Incorrecta1")).status_code == 401
 
 
-# --- E1-H2 CA.3 ---------------------------------------------------------------
+# --- mensaje generico ante credenciales invalidas -----------------------------
 
 
 async def test_e1_h2_ca3_wrong_password_and_unknown_account_answer_the_same(api):
@@ -183,7 +183,7 @@ async def test_e1_h2_ca3_wrong_password_and_unknown_account_answer_the_same(api)
     assert wrong_password.json()["detail"] == "Credenciales inválidas"
 
 
-# --- E1-H2 CA.4 ---------------------------------------------------------------
+# --- cuenta sin validar -------------------------------------------------------
 
 
 async def test_e1_h2_ca4_correct_credentials_on_unverified_account_point_to_the_mailbox(api):
@@ -196,7 +196,7 @@ async def test_e1_h2_ca4_correct_credentials_on_unverified_account_point_to_the_
     assert response.json()["detail"] != "Credenciales inválidas"
 
 
-# --- E1-H2 CA.5 ---------------------------------------------------------------
+# --- cuenta suspendida o borrada ----------------------------------------------
 
 
 async def test_e1_h2_ca5_suspended_account_is_refused(api):
@@ -228,7 +228,7 @@ async def test_e1_h2_ca5_suspension_is_not_revealed_without_the_password(api):
     assert response.json()["detail"] == "Credenciales inválidas"
 
 
-# --- E1-H3 CA.1 ---------------------------------------------------------------
+# --- cierre de sesion ---------------------------------------------------------
 
 
 async def test_e1_h3_ca1_token_is_revoked_on_logout(api):

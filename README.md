@@ -36,7 +36,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.email
+docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.adapters.email
 ```
 
 La documentación interactiva queda en `http://localhost:8000/docs`.
@@ -79,7 +79,7 @@ El email se guardó en minúsculas aunque se mandó con mayúscula: es `E1-H1 CA
 En la terminal del compose aparece el correo:
 
 ```
-INFO users_api.email | Correo de verificación para alumno@udesa.edu.ar.
+INFO users_api.adapters.email | Correo de verificación para alumno@udesa.edu.ar.
 Link válido por tiempo limitado: http://localhost:8000/auth/verify?token=P0oIiKeSRxIN...
 ```
 
@@ -184,7 +184,7 @@ curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: ap
 minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
 
 ```
-INFO users_api.email | Correo de recuperación para alumno@udesa.edu.ar.
+INFO users_api.adapters.email | Correo de recuperación para alumno@udesa.edu.ar.
 Link válido por tiempo limitado: http://localhost:8000/auth/reset-password?token=VMT1tI_Hy7...
 ```
 
@@ -246,18 +246,49 @@ uv run ruff format --check .
 
 ## Estructura
 
+El código se organiza **por feature**, no por capa: cada carpeta de `features/` es autocontenida
+y se puede leer, mover o extraer entera. Es la misma forma que usa `udesa-x-mobile`.
+
 ```text
 src/users_api/
-├── config.py   # configuración leída del entorno
-├── health.py   # verificación de dependencias
-└── main.py     # aplicación FastAPI
+├── main.py                 # aplicación FastAPI y ciclo de vida de las conexiones
+├── core/                   # transversal, no sabe de ninguna feature
+│   ├── config.py           # configuración leída del entorno
+│   ├── db.py               # sesión y base declarativa
+│   ├── deps.py             # dependencias compartidas por los routers
+│   ├── errors.py           # formato de error RFC 9457
+│   ├── rate_limit.py       # contador con ventana, sobre Redis
+│   └── security.py         # hasheo de contraseñas, tokens y JWT
+├── adapters/               # todo lo que habla con afuera
+│   └── email.py            # en desarrollo escribe el link en el log
+└── features/
+    ├── auth/               # registro, validación, login y cierre de sesión
+    │   ├── models.py       # User y EmailVerificationToken
+    │   ├── router.py
+    │   ├── schemas.py
+    │   ├── service.py
+    │   └── sessions.py     # revocación de tokens, en Redis
+    ├── password_reset/     # recuperación de contraseña olvidada
+    │   ├── models.py       # PasswordResetToken
+    │   ├── router.py
+    │   ├── schemas.py
+    │   └── service.py
+    └── health/             # verificación de dependencias
+        ├── checks.py
+        └── router.py
 tests/
-├── unit/          # sin dependencias externas
-└── integration/   # contra PostgreSQL y Redis reales
+├── unit/                   # sin dependencias externas
+└── integration/            # contra PostgreSQL y Redis reales
 docker/
 ├── Dockerfile              # multi-stage sobre python:3.13-slim
 └── docker-compose.dev.yml  # servicio, PostgreSQL y Redis
 ```
+
+Una feature puede usar `core/` y `adapters/`. Entre features hay una sola dependencia:
+`password_reset` usa `auth`, porque opera sobre las cuentas y las sesiones que `auth` define.
+
+Cuando una feature agrega una tabla, su `models.py` tiene que quedar importado en
+`migrations/env.py`, o `alembic revision --autogenerate` va a proponer borrarla.
 
 ## Code Guidelines (Reglas del Equipo)
 Para mantener la calidad y consistencia del código, todos los miembros deben seguir estas reglas:

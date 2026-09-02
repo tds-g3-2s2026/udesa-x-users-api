@@ -1,6 +1,11 @@
 import pytest
 
-from users_api.health import DependencyStatus, build_report, check_postgres, check_redis
+from users_api.features.health.checks import (
+    DependencyStatus,
+    build_report,
+    check_postgres,
+    check_redis,
+)
 
 
 class FakeConnection:

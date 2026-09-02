@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from users_api.db import Base
+from users_api.core.db import Base
 
 
 class User(Base):
@@ -15,24 +15,25 @@ class User(Base):
         postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    # E1-H1 CA.7: uniqueness is case-insensitive. The value is normalised to
-    # lowercase before it is stored or looked up, so the unique index enforces it
-    # without needing citext or a functional index.
+    # Uniqueness is case-insensitive. The value is normalised to lowercase
+    # before it is stored or looked up, so the unique index enforces it without
+    # needing citext or a functional index.
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     handle: Mapped[str] = mapped_column(String(16), unique=True, index=True)
 
-    # E1-H1 CA.4: only the argon2id digest is stored, never the password.
+    # Only the argon2id digest is stored, never the password.
     password_hash: Mapped[str] = mapped_column(String(255))
 
-    # E1-H1 CA.1: no access until the emailed token is consumed.
+    # No access until the emailed token is consumed.
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # E1-H2 CA.5: both conditions deny login with the same message.
+    # Suspended by an admin, or soft-deleted by the user. Both deny login with
+    # the same message.
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-    # E1-H12 CA.2 groundwork. The registration flow fills these in; the consent
-    # checkbox itself belongs to the mobile issue.
+    # The registration flow fills these in; the consent checkbox itself lives in
+    # the mobile app.
     terms_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
@@ -43,7 +44,7 @@ class User(Base):
     verification_tokens: Mapped[list["EmailVerificationToken"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(  # noqa: F821
         back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -66,46 +67,12 @@ class EmailVerificationToken(Base):
     # somebody else's account.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
 
-    # E1-H1 CA.6: the token expires and the user can request a new one.
+    # The link expires and the user can request a new one.
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="verification_tokens")
-
-    def is_usable(self, now: datetime) -> bool:
-        return self.used_at is None and self.expires_at > now
-
-
-class PasswordResetToken(Base):
-    """E1-H5. Same shape as the verification token, different lifecycle.
-
-    The two tables are kept apart on purpose: a reset link lives ten minutes and
-    a verification link twenty four hours, and consuming one must not touch the
-    other. Sharing a declarative mixin for six columns would buy less than it
-    costs to read.
-    """
-
-    __tablename__ = "password_reset_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        postgresql.UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
-
-    # Only the digest is stored, as with the verification token: a database dump
-    # must not be enough to take over an account.
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-
-    # E1-H5 CA.1: ten minutes. CA.5: used_at is what makes the link single use,
-    # and it is also stamped on the sibling tokens when one of them is consumed.
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    user: Mapped[User] = relationship(back_populates="password_reset_tokens")
 
     def is_usable(self, now: datetime) -> bool:
         return self.used_at is None and self.expires_at > now

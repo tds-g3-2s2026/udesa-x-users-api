@@ -27,7 +27,8 @@ uv run pytest --cov=src --cov-report=term              # + tests/integration, re
 
 ## Arquitectura y particularidades locales
 
-- El repo todavía no separa `routers/` / `services/` / `repositories/` en carpetas: todo vive plano en `src/users_api/` (`auth_router.py`, `auth_service.py`, `config.py`, `db.py`, `email.py`, `errors.py`, `health.py`, `main.py`, `models.py`, `schemas.py`, `security.py`). Si el servicio crece, migrar a la regla de capas estándar (lógica de negocio en `services/`, rutas HTTP en `routers/`, acceso a datos en `repositories/`).
+- El código se organiza por feature, no por capa: `src/users_api/features/<feature>/` con su `router.py`, `service.py`, `schemas.py` y `models.py`. Es la misma forma que usa `udesa-x-mobile` (`src/features/auth/`), así que los dos repos se leen igual y una feature se puede mover entera. Lo transversal vive en `core/` (`config`, `db`, `errors`, `security`, `rate_limit`, `deps`) y lo que habla con afuera en `adapters/` (`email`). Una feature puede depender de `core/` y de `adapters/`; entre features, solo `password_reset` depende de `auth`, porque el reset opera sobre cuentas y sesiones que son de `auth`.
+- Las tablas nuevas se registran en `migrations/env.py`: cada módulo `models.py` de cada feature tiene que estar importado ahí, o `autogenerate` propone borrar la tabla.
 - Tests en `tests/unit/` y `tests/integration/`; `tests/conftest.py` aplica las migraciones de Alembic contra la base real y limpia tablas/Redis entre tests (`clean_state`). La suite de integración se salta sola si no hay `DATABASE_URL`/`REDIS_URL`.
 - Documentación general del sistema: consultar `../udesa-x-platform/docs/` (`ARQUITECTURA.md`, `CONVENCIONES.md`, `PLANIFICACION.md`).
 

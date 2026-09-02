@@ -29,7 +29,7 @@ async def request_reset(api, identifier=REGISTRATION["email"]) -> str:
     return api.last_emailed_token()
 
 
-# --- E1-H5 CA.1 ---------------------------------------------------------------
+# --- ventana de diez minutos del link -----------------------------------------
 
 
 async def test_e1_h5_ca1_reset_link_expires_after_ten_minutes(api):
@@ -53,7 +53,7 @@ async def test_e1_h5_ca1_reset_link_expires_after_ten_minutes(api):
     assert (await api.login()).status_code == 200
 
 
-# --- E1-H5 CA.2 ---------------------------------------------------------------
+# --- link vencido y pedido de uno nuevo ---------------------------------------
 
 
 async def test_e1_h5_ca2_expired_link_is_refused_and_can_be_resent(api):
@@ -72,7 +72,7 @@ async def test_e1_h5_ca2_expired_link_is_refused_and_can_be_resent(api):
     assert (await api.login(password=NEW_PASSWORD)).status_code == 200
 
 
-# --- E1-H5 CA.4 ---------------------------------------------------------------
+# --- respuesta generica ante cualquier identificador --------------------------
 
 
 async def test_e1_h5_ca4_unknown_account_gets_the_same_generic_answer(api):
@@ -85,7 +85,7 @@ async def test_e1_h5_ca4_unknown_account_gets_the_same_generic_answer(api):
     assert registered.json() == unknown.json()
 
 
-# --- E1-H5 CA.5 ---------------------------------------------------------------
+# --- link de un solo uso ------------------------------------------------------
 
 
 async def test_e1_h5_ca5_reset_token_cannot_be_reused(api):
@@ -109,7 +109,7 @@ async def test_e1_h5_ca5_using_one_link_kills_the_other_open_ones(api):
     assert (await api.reset_password(first_token, "Contrasena3")).status_code == 400
 
 
-# --- E1-H5 CA.6 ---------------------------------------------------------------
+# --- contrasena nueva distinta de la actual -----------------------------------
 
 
 async def test_e1_h5_ca6_rejects_reusing_the_current_password(api):
@@ -121,7 +121,7 @@ async def test_e1_h5_ca6_rejects_reusing_the_current_password(api):
     assert "distinta de la actual" in repeated.json()["detail"]
 
 
-# --- E1-H5 CA.7 ---------------------------------------------------------------
+# --- revocacion de todas las sesiones -----------------------------------------
 
 
 async def test_e1_h5_ca7_successful_reset_revokes_every_active_session(api):
@@ -150,7 +150,7 @@ async def test_e1_h5_ca7_successful_reset_revokes_every_active_session(api):
     assert 0 < ttl <= 15 * 60
 
 
-# --- E1-H5 CA.8 ---------------------------------------------------------------
+# --- limite de pedidos por identificador --------------------------------------
 
 
 async def test_e1_h5_ca8_limits_reset_requests_for_the_same_email(api):
