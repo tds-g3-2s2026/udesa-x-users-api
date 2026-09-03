@@ -3,9 +3,9 @@
 Primera migración del servicio. Crea las dos tablas sobre las que se apoyan el
 registro y el inicio de sesión.
 
-Los índices únicos sobre email y handle son lo que hace cumplir E1-H1 CA.2, CA.3
-y CA.7: como los dos valores se guardan normalizados en minúsculas, el índice
-alcanza para que la unicidad sea case-insensitive, sin citext ni índice funcional.
+Los índices únicos sobre email y handle son lo que hace cumplir la unicidad de
+las cuentas: como los dos valores se guardan normalizados en minúsculas, el
+índice alcanza para que sea case-insensitive, sin citext ni índice funcional.
 
 Revision ID: f61a1b957893
 Revises:

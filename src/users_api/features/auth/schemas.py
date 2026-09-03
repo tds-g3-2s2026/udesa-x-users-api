@@ -2,13 +2,26 @@ import re
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-# E1-H1 CA.3: starts with @, then 4 to 15 characters, letters, digits and
-# underscores only. The @ is read as a prefix and not counted towards the
-# length; worth confirming with the tutor, since the wording is ambiguous.
+# Starts with @, then 4 to 15 characters, letters, digits and underscores only.
+# The @ is read as a prefix and not counted towards the length; worth confirming
+# with the tutor, since the wording is ambiguous.
 HANDLE_PATTERN = re.compile(r"^@[a-zA-Z0-9_]{4,15}$")
 
-# E1-H1 CA.4: at least 8 characters, one uppercase letter and one digit.
+# At least 8 characters, one uppercase letter and one digit.
 PASSWORD_MIN_LENGTH = 8
+
+
+def enforce_password_policy(value: str) -> str:
+    """The password policy, in one place.
+
+    Registration and password reset have to apply the same rules, so they share
+    this function instead of each keeping a copy that could drift apart.
+    """
+    if not any(character.isupper() for character in value):
+        raise ValueError("La contraseña debe tener al menos una mayúscula")
+    if not any(character.isdigit() for character in value):
+        raise ValueError("La contraseña debe tener al menos un número")
+    return value
 
 
 class RegisterRequest(BaseModel):
@@ -30,11 +43,7 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def password_must_meet_policy(cls, value: str) -> str:
-        if not any(character.isupper() for character in value):
-            raise ValueError("La contraseña debe tener al menos una mayúscula")
-        if not any(character.isdigit() for character in value):
-            raise ValueError("La contraseña debe tener al menos un número")
-        return value
+        return enforce_password_policy(value)
 
     @field_validator("terms_accepted")
     @classmethod
@@ -59,7 +68,7 @@ class ResendVerificationRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    # E1-H2: the user logs in with either the email or the handle.
+    # The user logs in with either the email or the handle.
     identifier: str = Field(min_length=1)
     password: str = Field(min_length=1)
 

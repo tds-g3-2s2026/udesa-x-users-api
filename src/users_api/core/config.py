@@ -20,14 +20,23 @@ class Settings(BaseSettings):
     jwt_private_key: str | None = None
     access_token_minutes: int = 15
 
-    # E1-H2 CA.2: five failed attempts lock the account for fifteen minutes.
+    # Five failed attempts lock the account for fifteen minutes.
     login_max_attempts: int = 5
     login_lockout_minutes: int = 15
 
-    # E1-H1 CA.6: the verification token expires and can be requested again.
+    # The verification link expires and can be requested again.
     email_verification_hours: int = 24
 
-    # Base for the verification link sent by email.
+    # The reset link is short lived: it opens the door to the account, unlike
+    # the verification one.
+    password_reset_minutes: int = 10
+
+    # Three reset requests per hour for the same identifier. The cap also
+    # protects the mail provider, not only the account.
+    password_reset_max_requests: int = 3
+    password_reset_window_minutes: int = 60
+
+    # Base for the links sent by email.
     public_base_url: str = "http://localhost:8000"
 
     log_level: str = "INFO"

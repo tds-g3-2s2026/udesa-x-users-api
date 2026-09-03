@@ -30,11 +30,13 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token |
 | `POST /auth/logout` | Revoca el token de sesión activo |
+| `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
+| `POST /auth/reset-password` | Consume el link y cambia la contraseña |
 
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.email
+docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.adapters.email
 ```
 
 La documentación interactiva queda en `http://localhost:8000/docs`.
@@ -77,7 +79,7 @@ El email se guardó en minúsculas aunque se mandó con mayúscula: es `E1-H1 CA
 En la terminal del compose aparece el correo:
 
 ```
-INFO users_api.email | Correo de verificación para alumno@udesa.edu.ar.
+INFO users_api.adapters.email | Correo de verificación para alumno@udesa.edu.ar.
 Link válido por tiempo limitado: http://localhost:8000/auth/verify?token=P0oIiKeSRxIN...
 ```
 
@@ -167,6 +169,50 @@ curl.exe -s -o NUL -w "%{http_code}`n" -X POST http://localhost:8000/auth/logout
 docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:*"
 ```
 
+### 7. Recuperar la contraseña olvidada
+
+```powershell
+curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\"}'
+```
+
+```json
+{"status":"accepted"}
+```
+
+`E1-H5 CA.4`. La respuesta es esta misma para una dirección que no existe: probá con
+`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el link, que dura diez
+minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
+
+```
+INFO users_api.adapters.email | Correo de recuperación para alumno@udesa.edu.ar.
+Link válido por tiempo limitado: http://localhost:8000/auth/reset-password?token=VMT1tI_Hy7...
+```
+
+Con ese token se cambia la contraseña. La confirmación va aparte y tiene que coincidir
+(`E1-H5 CA.3`):
+
+```powershell
+$log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
+$tok = [regex]::Match($log, 'reset-password\?token=([\w\-]+)').Groups[1].Value
+'{"token":"' + $tok + '","password":"Contrasena2","password_confirmation":"Contrasena2"}' | Set-Content "$env:TEMP\reset.json" -Encoding utf8 -NoNewline
+curl.exe -X POST http://localhost:8000/auth/reset-password -H "Content-Type: application/json" --data "@$env:TEMP\reset.json"
+```
+
+```json
+{"status":"reset","handle":"@alumno_01"}
+```
+
+Repetir el mismo comando devuelve `400`: el link es de un solo uso (`E1-H5 CA.5`). Reintentar
+con la contraseña vieja, `Contrasena1`, también da `400`, porque la nueva tiene que ser distinta
+(`E1-H5 CA.6`). Y todas las sesiones que estaban abiertas quedaron revocadas de una (`E1-H5
+CA.7`):
+
+```powershell
+docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:user:*"
+```
+
+Pedir más de tres links en una hora para el mismo identificador devuelve `429` (`E1-H5 CA.8`).
+
 Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
 
 ## Correr los tests
@@ -200,18 +246,49 @@ uv run ruff format --check .
 
 ## Estructura
 
+El código se organiza **por feature**, no por capa: cada carpeta de `features/` es autocontenida
+y se puede leer, mover o extraer entera. Es la misma forma que usa `udesa-x-mobile`.
+
 ```text
 src/users_api/
-├── config.py   # configuración leída del entorno
-├── health.py   # verificación de dependencias
-└── main.py     # aplicación FastAPI
+├── main.py                 # aplicación FastAPI y ciclo de vida de las conexiones
+├── core/                   # transversal, no sabe de ninguna feature
+│   ├── config.py           # configuración leída del entorno
+│   ├── db.py               # sesión y base declarativa
+│   ├── deps.py             # dependencias compartidas por los routers
+│   ├── errors.py           # formato de error RFC 9457
+│   ├── rate_limit.py       # contador con ventana, sobre Redis
+│   └── security.py         # hasheo de contraseñas, tokens y JWT
+├── adapters/               # todo lo que habla con afuera
+│   └── email.py            # en desarrollo escribe el link en el log
+└── features/
+    ├── auth/               # registro, validación, login y cierre de sesión
+    │   ├── models.py       # User y EmailVerificationToken
+    │   ├── router.py
+    │   ├── schemas.py
+    │   ├── service.py
+    │   └── sessions.py     # revocación de tokens, en Redis
+    ├── password_reset/     # recuperación de contraseña olvidada
+    │   ├── models.py       # PasswordResetToken
+    │   ├── router.py
+    │   ├── schemas.py
+    │   └── service.py
+    └── health/             # verificación de dependencias
+        ├── checks.py
+        └── router.py
 tests/
-├── unit/          # sin dependencias externas
-└── integration/   # contra PostgreSQL y Redis reales
+├── unit/                   # sin dependencias externas
+└── integration/            # contra PostgreSQL y Redis reales
 docker/
 ├── Dockerfile              # multi-stage sobre python:3.13-slim
 └── docker-compose.dev.yml  # servicio, PostgreSQL y Redis
 ```
+
+Una feature puede usar `core/` y `adapters/`. Entre features hay una sola dependencia:
+`password_reset` usa `auth`, porque opera sobre las cuentas y las sesiones que `auth` define.
+
+Cuando una feature agrega una tabla, su `models.py` tiene que quedar importado en
+`migrations/env.py`, o `alembic revision --autogenerate` va a proponer borrarla.
 
 ## Code Guidelines (Reglas del Equipo)
 Para mantener la calidad y consistencia del código, todos los miembros deben seguir estas reglas:

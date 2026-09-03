@@ -3,21 +3,21 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from users_api.auth_router import router as auth_router
-from users_api.config import get_settings
-from users_api.db import build_session_factory
-from users_api.email import ConsoleEmailSender
-from users_api.errors import (
+from users_api.adapters.email import ConsoleEmailSender
+from users_api.core.config import get_settings
+from users_api.core.db import build_session_factory
+from users_api.core.errors import (
     ProblemError,
     problem_error_handler,
     validation_error_handler,
 )
-from users_api.health import build_report, check_postgres, check_redis
-from users_api.security import load_signing_key
+from users_api.core.security import load_signing_key
+from users_api.features.auth.router import router as auth_router
+from users_api.features.health.router import router as health_router
+from users_api.features.password_reset.router import router as password_reset_router
 
 
 @asynccontextmanager
@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
 
     # Uvicorn only configures its own loggers and leaves the root at WARNING, so
     # without this every logger.info in the service is dropped, including the
-    # verification link written by the email adapter.
+    # links written by the email adapter.
     logging.basicConfig(
         level=settings.log_level,
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
@@ -51,15 +51,6 @@ app = FastAPI(title="UdeSA-X Users API", version="0.1.0", lifespan=lifespan)
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
+app.include_router(health_router)
 app.include_router(auth_router)
-
-
-@app.get("/healthcheck", tags=["health"])
-async def healthcheck() -> JSONResponse:
-    """Check PostgreSQL and Redis before reporting the service as healthy."""
-    statuses = [
-        await check_postgres(app.state.engine),
-        await check_redis(app.state.redis),
-    ]
-    body, status_code = build_report(statuses)
-    return JSONResponse(body, status_code=status_code)
+app.include_router(password_reset_router)

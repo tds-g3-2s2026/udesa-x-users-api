@@ -6,21 +6,23 @@ from redis.asyncio import Redis
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.config import Settings
-from users_api.email import EmailSender
-from users_api.errors import ProblemError
-from users_api.models import EmailVerificationToken, User
-from users_api.security import (
+from users_api.adapters.email import EmailSender
+from users_api.core import rate_limit
+from users_api.core.config import Settings
+from users_api.core.errors import ProblemError
+from users_api.core.security import (
     decode_access_token,
-    generate_verification_token,
+    generate_emailed_token,
     hash_password,
     hash_token,
     issue_access_token,
     verify_password,
 )
+from users_api.features.auth import sessions
+from users_api.features.auth.models import EmailVerificationToken, User
 
-# Same message for a missing account and a wrong password, so the response never
-# tells an attacker which accounts exist. E1-H2 CA.3.
+# The same message for a missing account and a wrong password, so the response
+# never tells an attacker which accounts exist.
 INVALID_CREDENTIALS = "Credenciales inválidas"
 SUSPENDED_ACCOUNT = "Cuenta suspendida"
 UNVERIFIED_ACCOUNT = "Revisá tu casilla de correo para validar la cuenta antes de ingresar"
@@ -31,10 +33,6 @@ def lockout_key(identifier: str) -> str:
     return f"login:failed:{identifier.strip().lower()}"
 
 
-def revoked_key(jti: str) -> str:
-    return f"revoked:jti:{jti}"
-
-
 @dataclass
 class AuthService:
     session: AsyncSession
@@ -43,11 +41,11 @@ class AuthService:
     signing_key: object
     email_sender: EmailSender
 
-    # --- registration, E1-H1 ---------------------------------------------
+    # --- registration -----------------------------------------------------
 
     async def register(self, *, email: str, handle: str, password: str) -> User:
-        # E1-H1 CA.7: normalising before storing is what makes uniqueness
-        # case-insensitive, so Alumno@udesa.edu.ar collides with alumno@udesa.edu.ar.
+        # Normalising before storing is what makes uniqueness case-insensitive,
+        # so Alumno@udesa.edu.ar collides with alumno@udesa.edu.ar.
         normalised_email = email.strip().lower()
         normalised_handle = handle.strip().lower()
 
@@ -57,8 +55,8 @@ class AuthService:
             )
         )
         if taken is not None:
-            # E1-H1 CA.2 and CA.3. The message does not say which of the two
-            # collided, to avoid turning registration into an account oracle.
+            # The message does not say which of the two collided, to avoid
+            # turning registration into an account oracle.
             raise ProblemError(
                 status=409,
                 code="account-already-exists",
@@ -82,12 +80,12 @@ class AuthService:
         return user
 
     async def issue_verification_token(self, user: User, *, now: datetime) -> str:
-        raw_token = generate_verification_token()
+        raw_token = generate_emailed_token()
         self.session.add(
             EmailVerificationToken(
                 user_id=user.id,
                 token_hash=hash_token(raw_token),
-                # E1-H1 CA.6: the link stops working after the configured window.
+                # The link stops working after the configured window.
                 expires_at=now + timedelta(hours=self.settings.email_verification_hours),
             )
         )
@@ -103,8 +101,8 @@ class AuthService:
             )
         )
         if token is None or not token.is_usable(now):
-            # E1-H1 CA.6: an expired or already used token is refused, and the
-            # user is pointed at the resend endpoint.
+            # An expired or already used token is refused, and the user is
+            # pointed at the resend endpoint.
             raise ProblemError(
                 status=400,
                 code="verification-token-invalid",
@@ -128,7 +126,7 @@ class AuthService:
             return
         await self.issue_verification_token(user, now=datetime.now(UTC))
 
-    # --- login, E1-H2 -----------------------------------------------------
+    # --- login ------------------------------------------------------------
 
     async def login(self, *, identifier: str, password: str) -> tuple[str, int]:
         await self.guard_lockout(identifier)
@@ -139,7 +137,7 @@ class AuthService:
         )
 
         # The password is always verified, even when the account does not exist,
-        # so timing does not reveal it. E1-H2 CA.3.
+        # so the response time does not reveal which accounts are registered.
         if not verify_password(password, user.password_hash if user else None):
             await self.register_failure(identifier)
             raise ProblemError(
@@ -150,10 +148,9 @@ class AuthService:
             )
 
         # Only now, with the password proven, is the account state revealed. The
-        # caller already showed they own the account, so CA.4 and CA.5 can be
+        # caller already showed they own the account, so these messages can be
         # specific without becoming an enumeration vector.
         if not user.can_log_in:
-            # E1-H2 CA.5: suspended by an admin, or soft-deleted by the user.
             raise ProblemError(
                 status=403,
                 code="account-suspended",
@@ -162,7 +159,6 @@ class AuthService:
             )
 
         if not user.is_email_verified:
-            # E1-H1 CA.1 and E1-H2 CA.4.
             raise ProblemError(
                 status=403,
                 code="account-not-verified",
@@ -170,7 +166,7 @@ class AuthService:
                 detail=UNVERIFIED_ACCOUNT,
             )
 
-        await self.redis.delete(lockout_key(identifier))
+        await rate_limit.reset(self.redis, lockout_key(identifier))
         token = issue_access_token(
             self.signing_key,
             subject=user.id,
@@ -180,10 +176,10 @@ class AuthService:
         return token, self.settings.access_token_minutes * 60
 
     async def guard_lockout(self, identifier: str) -> None:
-        failures = await self.redis.get(lockout_key(identifier))
-        if failures is not None and int(failures) >= self.settings.login_max_attempts:
-            # E1-H2 CA.2. 429 and not 401: what is being rejected is the rate,
-            # not the credentials.
+        failures = await rate_limit.count(self.redis, lockout_key(identifier))
+        if failures >= self.settings.login_max_attempts:
+            # 429 and not 401: what is being rejected is the rate, not the
+            # credentials.
             raise ProblemError(
                 status=429,
                 code="too-many-attempts",
@@ -201,17 +197,18 @@ class AuthService:
         The counter is keyed by identifier and not by account id, so attempts
         against addresses that do not exist are counted the same way.
         """
-        key = lockout_key(identifier)
-        failures = await self.redis.incr(key)
-        if failures == 1:
-            await self.redis.expire(key, self.settings.login_lockout_minutes * 60)
+        await rate_limit.hit(
+            self.redis,
+            lockout_key(identifier),
+            window_seconds=self.settings.login_lockout_minutes * 60,
+        )
 
-    # --- logout, E1-H3 ------------------------------------------------------
+    # --- logout -------------------------------------------------------------
 
     async def logout(self, token: str) -> None:
-        """Revoke the token's jti, E1-H3 CA.1.
+        """Revoke the token that was used to call this.
 
-        A JWT is self-contained and the server never stored it, so "logging out"
+        A JWT is self-contained and the server never stored it, so logging out
         means recording its jti as revoked until it would have expired anyway.
         """
         try:
@@ -228,6 +225,9 @@ class AuthService:
                 detail=INVALID_TOKEN,
             ) from exc
 
-        expires_at = datetime.fromtimestamp(claims["exp"], tz=UTC)
-        ttl = int((expires_at - datetime.now(UTC)).total_seconds())
-        await self.redis.set(revoked_key(claims["jti"]), "1", ex=ttl)
+        await sessions.revoke_token(
+            self.redis,
+            claims["jti"],
+            expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
+            now=datetime.now(UTC),
+        )
