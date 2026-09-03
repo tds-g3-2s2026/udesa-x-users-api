@@ -1,3 +1,13 @@
+"""The SQLAlchemy tables.
+
+All of them together in one module because they reference each other and
+Alembic compares the whole metadata at once: a model declared somewhere that is
+never imported gets read as a table to drop.
+
+These classes are storage, not business rules. The rules about what an account
+can do live on the dataclasses under each feature's `domain.py`.
+"""
+
 import uuid
 from datetime import datetime
 
@@ -8,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from users_api.core.db import Base
 
 
-class User(Base):
+class UserModel(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -24,16 +34,11 @@ class User(Base):
     # Only the argon2id digest is stored, never the password.
     password_hash: Mapped[str] = mapped_column(String(255))
 
-    # No access until the emailed token is consumed.
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Suspended by an admin, or soft-deleted by the user. Both deny login with
-    # the same message.
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
-    # The registration flow fills these in; the consent checkbox itself lives in
-    # the mobile app.
     terms_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     terms_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
@@ -41,19 +46,15 @@ class User(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    verification_tokens: Mapped[list["EmailVerificationToken"]] = relationship(
+    verification_tokens: Mapped[list["EmailVerificationTokenModel"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
-    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(  # noqa: F821
+    password_reset_tokens: Mapped[list["PasswordResetTokenModel"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
 
-    @property
-    def can_log_in(self) -> bool:
-        return not self.is_suspended and self.deleted_at is None
 
-
-class EmailVerificationToken(Base):
+class EmailVerificationTokenModel(Base):
     __tablename__ = "email_verification_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -67,12 +68,34 @@ class EmailVerificationToken(Base):
     # somebody else's account.
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
 
-    # The link expires and the user can request a new one.
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-    user: Mapped[User] = relationship(back_populates="verification_tokens")
+    user: Mapped[UserModel] = relationship(back_populates="verification_tokens")
 
-    def is_usable(self, now: datetime) -> bool:
-        return self.used_at is None and self.expires_at > now
+
+class PasswordResetTokenModel(Base):
+    """Kept apart from the verification token even though the columns match.
+
+    A reset link lives ten minutes and a verification link twenty four hours,
+    and consuming one must not touch the other. Sharing a declarative mixin for
+    six columns would buy less than it costs to read.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[UserModel] = relationship(back_populates="password_reset_tokens")

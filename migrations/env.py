@@ -5,12 +5,11 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # Importing the models is what registers the tables on Base.metadata, which is
-# what autogenerate compares the database against. Every feature that owns a
-# table has to be listed here, or autogenerate will propose dropping it.
+# what autogenerate compares the database against. A table whose model is not
+# imported here gets read as one to drop.
 from users_api.core.config import get_settings
 from users_api.core.db import Base
-from users_api.features.auth import models as auth_models  # noqa: F401
-from users_api.features.password_reset import models as password_reset_models  # noqa: F401
+from users_api.infrastructure.database import models  # noqa: F401
 
 config = context.config
 

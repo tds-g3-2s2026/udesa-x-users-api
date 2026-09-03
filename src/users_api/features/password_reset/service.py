@@ -1,23 +1,19 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from redis.asyncio import Redis
-from sqlalchemy import or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from users_api.adapters.email import EmailSender
-from users_api.core import rate_limit
 from users_api.core.config import Settings
 from users_api.core.errors import ProblemError
+from users_api.core.ports import EmailSender, RateLimiter, SessionStore
 from users_api.core.security import (
     generate_emailed_token,
     hash_password,
     hash_token,
     verify_password,
 )
-from users_api.features.auth import sessions
-from users_api.features.auth.models import User
-from users_api.features.password_reset.models import PasswordResetToken
+from users_api.features.auth.domain import User
+from users_api.features.auth.repositories import UserRepository
+from users_api.features.password_reset.domain import PasswordResetToken
+from users_api.features.password_reset.repositories import PasswordResetTokenRepository
 
 RESET_LINK_INVALID = "El link de recuperación es inválido o expiró. Pedí uno nuevo"
 SAME_PASSWORD = "La contraseña nueva tiene que ser distinta de la actual"
@@ -29,8 +25,10 @@ def reset_request_key(identifier: str) -> str:
 
 @dataclass
 class PasswordResetService:
-    session: AsyncSession
-    redis: Redis
+    users: UserRepository
+    reset_tokens: PasswordResetTokenRepository
+    rate_limiter: RateLimiter
+    sessions: SessionStore
     settings: Settings
     email_sender: EmailSender
 
@@ -44,16 +42,13 @@ class PasswordResetService:
         """
         await self.guard_reset_limit(identifier)
 
-        normalised = identifier.strip().lower()
-        user = await self.session.scalar(
-            select(User).where(or_(User.email == normalised, User.handle == normalised))
-        )
+        user = await self.users.find_by_identifier(identifier.strip().lower())
         if user is None or not user.can_log_in:
             return
 
         now = datetime.now(UTC)
         raw_token = generate_emailed_token()
-        self.session.add(
+        await self.reset_tokens.add(
             PasswordResetToken(
                 user_id=user.id,
                 token_hash=hash_token(raw_token),
@@ -73,8 +68,7 @@ class PasswordResetService:
         counter would need resolving the identifier to an account first, and
         then the 429 would answer whether that account exists.
         """
-        requests = await rate_limit.hit(
-            self.redis,
+        requests = await self.rate_limiter.hit(
             reset_request_key(identifier),
             window_seconds=self.settings.password_reset_window_minutes * 60,
         )
@@ -92,9 +86,7 @@ class PasswordResetService:
 
     async def reset_password(self, raw_token: str, new_password: str) -> User:
         now = datetime.now(UTC)
-        token = await self.session.scalar(
-            select(PasswordResetToken).where(PasswordResetToken.token_hash == hash_token(raw_token))
-        )
+        token = await self.reset_tokens.find_by_hash(hash_token(raw_token))
         if token is None or not token.is_usable(now):
             # Expired, unknown or already used all answer the same, pointing at
             # asking for a new link.
@@ -105,7 +97,7 @@ class PasswordResetService:
                 detail=RESET_LINK_INVALID,
             )
 
-        user = await self.session.get(User, token.user_id)
+        user = await self.users.get(token.user_id)
 
         # Checked against the stored hash before replacing it.
         if verify_password(new_password, user.password_hash):
@@ -117,23 +109,16 @@ class PasswordResetService:
             )
 
         user.password_hash = hash_password(new_password)
+        await self.users.update(user)
 
         # The consumed link dies, and so does every other open link of this
         # account. Otherwise one sent minutes earlier would still be a way in
         # after the password already changed.
-        await self.session.execute(
-            update(PasswordResetToken)
-            .where(
-                PasswordResetToken.user_id == user.id,
-                PasswordResetToken.used_at.is_(None),
-            )
-            .values(used_at=now)
-        )
+        await self.reset_tokens.mark_all_used(user.id, used_at=now)
 
-        await sessions.revoke_all_sessions(
-            self.redis,
+        await self.sessions.revoke_all(
             user.id,
             now=now,
-            access_token_minutes=self.settings.access_token_minutes,
+            ttl_seconds=self.settings.access_token_minutes * 60,
         )
         return user

@@ -2,14 +2,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from redis.asyncio import Redis
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.adapters.email import EmailSender
-from users_api.core import rate_limit
 from users_api.core.config import Settings
 from users_api.core.errors import ProblemError
+from users_api.core.ports import EmailSender, RateLimiter, SessionStore
 from users_api.core.security import (
     decode_access_token,
     generate_emailed_token,
@@ -18,8 +14,11 @@ from users_api.core.security import (
     issue_access_token,
     verify_password,
 )
-from users_api.features.auth import sessions
-from users_api.features.auth.models import EmailVerificationToken, User
+from users_api.features.auth.domain import EmailVerificationToken, User
+from users_api.features.auth.repositories import (
+    EmailVerificationTokenRepository,
+    UserRepository,
+)
 
 # The same message for a missing account and a wrong password, so the response
 # never tells an attacker which accounts exist.
@@ -35,13 +34,20 @@ def lockout_key(identifier: str) -> str:
 
 @dataclass
 class AuthService:
-    session: AsyncSession
-    redis: Redis
+    """Registration, login and logout.
+
+    Everything it needs from the outside arrives as an interface, so this class
+    never names a database, a cache or a mail provider. That is what makes it
+    testable without infrastructure and movable without a rewrite.
+    """
+
+    users: UserRepository
+    verification_tokens: EmailVerificationTokenRepository
+    rate_limiter: RateLimiter
+    sessions: SessionStore
     settings: Settings
     signing_key: object
     email_sender: EmailSender
-
-    # --- registration -----------------------------------------------------
 
     async def register(self, *, email: str, handle: str, password: str) -> User:
         # Normalising before storing is what makes uniqueness case-insensitive,
@@ -49,12 +55,7 @@ class AuthService:
         normalised_email = email.strip().lower()
         normalised_handle = handle.strip().lower()
 
-        taken = await self.session.scalar(
-            select(User).where(
-                or_(User.email == normalised_email, User.handle == normalised_handle)
-            )
-        )
-        if taken is not None:
+        if await self.users.exists_with_email_or_handle(normalised_email, normalised_handle):
             # The message does not say which of the two collided, to avoid
             # turning registration into an account oracle.
             raise ProblemError(
@@ -65,23 +66,23 @@ class AuthService:
             )
 
         now = datetime.now(UTC)
-        user = User(
-            email=normalised_email,
-            handle=normalised_handle,
-            password_hash=hash_password(password),
-            is_email_verified=False,
-            terms_accepted=True,
-            terms_accepted_at=now,
+        user = await self.users.add(
+            User(
+                email=normalised_email,
+                handle=normalised_handle,
+                password_hash=hash_password(password),
+                is_email_verified=False,
+                terms_accepted=True,
+                terms_accepted_at=now,
+            )
         )
-        self.session.add(user)
-        await self.session.flush()
 
         await self.issue_verification_token(user, now=now)
         return user
 
     async def issue_verification_token(self, user: User, *, now: datetime) -> str:
         raw_token = generate_emailed_token()
-        self.session.add(
+        await self.verification_tokens.add(
             EmailVerificationToken(
                 user_id=user.id,
                 token_hash=hash_token(raw_token),
@@ -95,11 +96,7 @@ class AuthService:
 
     async def verify_email(self, raw_token: str) -> User:
         now = datetime.now(UTC)
-        token = await self.session.scalar(
-            select(EmailVerificationToken).where(
-                EmailVerificationToken.token_hash == hash_token(raw_token)
-            )
-        )
+        token = await self.verification_tokens.find_by_hash(hash_token(raw_token))
         if token is None or not token.is_usable(now):
             # An expired or already used token is refused, and the user is
             # pointed at the resend endpoint.
@@ -110,9 +107,10 @@ class AuthService:
                 detail="El link de validación es inválido o expiró. Pedí uno nuevo desde el login",
             )
 
-        token.used_at = now
-        user = await self.session.get(User, token.user_id)
+        await self.verification_tokens.mark_used(token.id, used_at=now)
+        user = await self.users.get(token.user_id)
         user.is_email_verified = True
+        await self.users.update(user)
         return user
 
     async def resend_verification(self, email: str) -> None:
@@ -121,20 +119,15 @@ class AuthService:
         Telling the caller whether the address is registered would leak the same
         information the login endpoint is careful to hide.
         """
-        user = await self.session.scalar(select(User).where(User.email == email.strip().lower()))
+        user = await self.users.find_by_email(email.strip().lower())
         if user is None or user.is_email_verified or not user.can_log_in:
             return
         await self.issue_verification_token(user, now=datetime.now(UTC))
 
-    # --- login ------------------------------------------------------------
-
     async def login(self, *, identifier: str, password: str) -> tuple[str, int]:
         await self.guard_lockout(identifier)
 
-        normalised = identifier.strip().lower()
-        user = await self.session.scalar(
-            select(User).where(or_(User.email == normalised, User.handle == normalised))
-        )
+        user = await self.users.find_by_identifier(identifier.strip().lower())
 
         # The password is always verified, even when the account does not exist,
         # so the response time does not reveal which accounts are registered.
@@ -166,7 +159,7 @@ class AuthService:
                 detail=UNVERIFIED_ACCOUNT,
             )
 
-        await rate_limit.reset(self.redis, lockout_key(identifier))
+        await self.rate_limiter.reset(lockout_key(identifier))
         token = issue_access_token(
             self.signing_key,
             subject=user.id,
@@ -176,7 +169,7 @@ class AuthService:
         return token, self.settings.access_token_minutes * 60
 
     async def guard_lockout(self, identifier: str) -> None:
-        failures = await rate_limit.count(self.redis, lockout_key(identifier))
+        failures = await self.rate_limiter.count(lockout_key(identifier))
         if failures >= self.settings.login_max_attempts:
             # 429 and not 401: what is being rejected is the rate, not the
             # credentials.
@@ -197,13 +190,10 @@ class AuthService:
         The counter is keyed by identifier and not by account id, so attempts
         against addresses that do not exist are counted the same way.
         """
-        await rate_limit.hit(
-            self.redis,
+        await self.rate_limiter.hit(
             lockout_key(identifier),
             window_seconds=self.settings.login_lockout_minutes * 60,
         )
-
-    # --- logout -------------------------------------------------------------
 
     async def logout(self, token: str) -> None:
         """Revoke the token that was used to call this.
@@ -225,8 +215,7 @@ class AuthService:
                 detail=INVALID_TOKEN,
             ) from exc
 
-        await sessions.revoke_token(
-            self.redis,
+        await self.sessions.revoke_token(
             claims["jti"],
             expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
             now=datetime.now(UTC),

@@ -1,10 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.core.deps import get_session
+from users_api.core.deps import (
+    EmailSenderDep,
+    RateLimiterDep,
+    SessionStoreDep,
+    SettingsDep,
+    SigningKeyDep,
+    UserRepositoryDep,
+    VerificationTokenRepositoryDep,
+)
 from users_api.features.auth.schemas import (
     LoginRequest,
     LoginResponse,
@@ -19,15 +26,22 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 async def get_auth_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session)]
+    users: UserRepositoryDep,
+    verification_tokens: VerificationTokenRepositoryDep,
+    rate_limiter: RateLimiterDep,
+    sessions: SessionStoreDep,
+    settings: SettingsDep,
+    signing_key: SigningKeyDep,
+    email_sender: EmailSenderDep,
 ) -> AuthService:
-    state = request.app.state
     return AuthService(
-        session=session,
-        redis=state.redis,
-        settings=state.settings,
-        signing_key=state.signing_key,
-        email_sender=state.email_sender,
+        users=users,
+        verification_tokens=verification_tokens,
+        rate_limiter=rate_limiter,
+        sessions=sessions,
+        settings=settings,
+        signing_key=signing_key,
+        email_sender=email_sender,
     )
 
 

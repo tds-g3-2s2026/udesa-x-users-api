@@ -6,7 +6,6 @@ from fastapi.exceptions import RequestValidationError
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from users_api.adapters.email import ConsoleEmailSender
 from users_api.core.config import get_settings
 from users_api.core.db import build_session_factory
 from users_api.core.errors import (
@@ -18,6 +17,7 @@ from users_api.core.security import load_signing_key
 from users_api.features.auth.router import router as auth_router
 from users_api.features.health.router import router as health_router
 from users_api.features.password_reset.router import router as password_reset_router
+from users_api.infrastructure.email.console import ConsoleEmailSender
 
 
 @asynccontextmanager
