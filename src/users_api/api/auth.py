@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from users_api.core.deps import (
+from users_api.api.deps import (
     EmailSenderDep,
     RateLimiterDep,
     SessionStoreDep,
@@ -12,7 +12,7 @@ from users_api.core.deps import (
     UserRepositoryDep,
     VerificationTokenRepositoryDep,
 )
-from users_api.features.auth.schemas import (
+from users_api.api.schemas.auth import (
     LoginRequest,
     LoginResponse,
     RegisterRequest,
@@ -20,7 +20,7 @@ from users_api.features.auth.schemas import (
     ResendVerificationRequest,
     VerifyRequest,
 )
-from users_api.features.auth.service import AuthService
+from users_api.app.services.auth import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

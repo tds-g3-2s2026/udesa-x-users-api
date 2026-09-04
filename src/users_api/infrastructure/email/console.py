@@ -10,7 +10,7 @@ one line in `main.py`. No service is touched.
 
 import logging
 
-from users_api.core.ports import EmailSender
+from users_api.app.clients.email import EmailSender
 
 logger = logging.getLogger(__name__)
 

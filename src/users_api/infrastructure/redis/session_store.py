@@ -11,7 +11,7 @@ from datetime import datetime
 
 from redis.asyncio import Redis
 
-from users_api.core.ports import SessionStore
+from users_api.app.repositories.sessions import SessionStore
 
 
 def revoked_token_key(jti: str) -> str:

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from users_api.features.health.checks import build_report, check_postgres, check_redis
+from users_api.infrastructure.health import build_report, check_postgres, check_redis
 
 router = APIRouter(tags=["health"])
 

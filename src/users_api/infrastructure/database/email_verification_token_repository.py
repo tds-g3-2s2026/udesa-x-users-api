@@ -7,8 +7,8 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.features.auth.domain import EmailVerificationToken
-from users_api.features.auth.repositories import EmailVerificationTokenRepository
+from users_api.app.models.tokens import EmailVerificationToken
+from users_api.app.repositories.tokens import EmailVerificationTokenRepository
 from users_api.infrastructure.database.models import EmailVerificationTokenModel
 
 

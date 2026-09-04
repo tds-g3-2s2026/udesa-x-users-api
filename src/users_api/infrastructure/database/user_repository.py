@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.features.auth.domain import User
-from users_api.features.auth.repositories import UserRepository
+from users_api.app.models.user import User
+from users_api.app.repositories.users import UserRepository
 from users_api.infrastructure.database.models import UserModel
 
 

@@ -1,6 +1,6 @@
 import pytest
 
-from users_api.features.health.checks import (
+from users_api.infrastructure.health import (
     DependencyStatus,
     build_report,
     check_postgres,

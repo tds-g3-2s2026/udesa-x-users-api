@@ -3,10 +3,15 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 
-from users_api.core.config import Settings
-from users_api.core.errors import ProblemError
-from users_api.core.ports import EmailSender, RateLimiter, SessionStore
-from users_api.core.security import (
+from users_api.app.clients.email import EmailSender
+from users_api.app.errors import ProblemError
+from users_api.app.models.tokens import EmailVerificationToken
+from users_api.app.models.user import User
+from users_api.app.repositories.rate_limiter import RateLimiter
+from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import EmailVerificationTokenRepository
+from users_api.app.repositories.users import UserRepository
+from users_api.app.security import (
     decode_access_token,
     generate_emailed_token,
     hash_password,
@@ -14,11 +19,7 @@ from users_api.core.security import (
     issue_access_token,
     verify_password,
 )
-from users_api.features.auth.domain import EmailVerificationToken, User
-from users_api.features.auth.repositories import (
-    EmailVerificationTokenRepository,
-    UserRepository,
-)
+from users_api.config.settings import Settings
 
 # The same message for a missing account and a wrong password, so the response
 # never tells an attacker which accounts exist.

@@ -1,15 +1,21 @@
-"""How password recovery reaches its stored links.
-
-Accounts are read through `UserRepository`, which belongs to authentication:
-recovery reads and updates the same account, and duplicating the interface would
-mean two ways of asking the same question.
-"""
+"""How the business reaches the emailed tokens it handed out."""
 
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from users_api.features.password_reset.domain import PasswordResetToken
+from users_api.app.models.tokens import EmailVerificationToken, PasswordResetToken
+
+
+class EmailVerificationTokenRepository(ABC):
+    @abstractmethod
+    async def add(self, token: EmailVerificationToken) -> None: ...
+
+    @abstractmethod
+    async def find_by_hash(self, token_hash: str) -> EmailVerificationToken | None: ...
+
+    @abstractmethod
+    async def mark_used(self, token_id: uuid.UUID, *, used_at: datetime) -> None: ...
 
 
 class PasswordResetTokenRepository(ABC):

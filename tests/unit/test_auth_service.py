@@ -13,16 +13,17 @@ from unittest.mock import AsyncMock
 import jwt
 import pytest
 
-from users_api.core.config import Settings
-from users_api.core.errors import ProblemError
-from users_api.core.ports import EmailSender, RateLimiter, SessionStore
-from users_api.core.security import hash_password, hash_token, issue_access_token
-from users_api.features.auth.domain import EmailVerificationToken, User
-from users_api.features.auth.repositories import (
-    EmailVerificationTokenRepository,
-    UserRepository,
-)
-from users_api.features.auth.service import INVALID_CREDENTIALS, AuthService
+from users_api.app.clients.email import EmailSender
+from users_api.app.errors import ProblemError
+from users_api.app.models.tokens import EmailVerificationToken
+from users_api.app.models.user import User
+from users_api.app.repositories.rate_limiter import RateLimiter
+from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import EmailVerificationTokenRepository
+from users_api.app.repositories.users import UserRepository
+from users_api.app.security import hash_password, hash_token, issue_access_token
+from users_api.app.services.auth import INVALID_CREDENTIALS, AuthService
+from users_api.config.settings import Settings
 
 PASSWORD = "Contrasena1"
 
