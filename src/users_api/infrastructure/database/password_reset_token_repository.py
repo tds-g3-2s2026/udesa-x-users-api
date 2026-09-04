@@ -7,8 +7,8 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.features.password_reset.domain import PasswordResetToken
-from users_api.features.password_reset.repositories import PasswordResetTokenRepository
+from users_api.app.models.tokens import PasswordResetToken
+from users_api.app.repositories.tokens import PasswordResetTokenRepository
 from users_api.infrastructure.database.models import PasswordResetTokenModel
 
 

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from redis.asyncio import Redis
 
-from users_api.core.ports import RateLimiter
+from users_api.app.repositories.rate_limiter import RateLimiter
 
 
 @dataclass

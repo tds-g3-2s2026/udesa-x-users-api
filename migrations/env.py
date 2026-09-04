@@ -7,9 +7,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Importing the models is what registers the tables on Base.metadata, which is
 # what autogenerate compares the database against. A table whose model is not
 # imported here gets read as one to drop.
-from users_api.core.config import get_settings
-from users_api.core.db import Base
+from users_api.config.settings import get_settings
 from users_api.infrastructure.database import models  # noqa: F401
+from users_api.infrastructure.database.session import Base
 
 config = context.config
 

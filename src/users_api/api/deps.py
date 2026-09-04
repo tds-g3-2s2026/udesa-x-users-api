@@ -15,20 +15,22 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.core.config import Settings
-from users_api.core.db import session_scope
-from users_api.core.ports import EmailSender, RateLimiter, SessionStore
-from users_api.features.auth.repositories import (
+from users_api.app.clients.email import EmailSender
+from users_api.app.repositories.rate_limiter import RateLimiter
+from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import (
     EmailVerificationTokenRepository,
-    UserRepository,
+    PasswordResetTokenRepository,
 )
-from users_api.features.password_reset.repositories import PasswordResetTokenRepository
+from users_api.app.repositories.users import UserRepository
+from users_api.config.settings import Settings
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
 from users_api.infrastructure.database.password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
 )
+from users_api.infrastructure.database.session import session_scope
 from users_api.infrastructure.database.user_repository import SqlAlchemyUserRepository
 from users_api.infrastructure.redis.rate_limiter import RedisRateLimiter
 from users_api.infrastructure.redis.session_store import RedisSessionStore

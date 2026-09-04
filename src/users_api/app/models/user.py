@@ -1,8 +1,8 @@
 """What an account is, in plain Python.
 
-No SQLAlchemy here on purpose. These classes carry the rules that answer
+No SQLAlchemy here on purpose. This class carries the rules that answer
 questions about an account, and those rules do not change if the data moves to
-another engine. The tables that store them live in
+another engine. The table that stores it lives in
 `infrastructure/database/models.py`.
 """
 
@@ -28,15 +28,3 @@ class User:
     def can_log_in(self) -> bool:
         """Suspended by an admin and self-deleted deny access the same way."""
         return not self.is_suspended and self.deleted_at is None
-
-
-@dataclass
-class EmailVerificationToken:
-    user_id: uuid.UUID
-    token_hash: str
-    expires_at: datetime
-    id: uuid.UUID | None = None
-    used_at: datetime | None = None
-
-    def is_usable(self, now: datetime) -> bool:
-        return self.used_at is None and self.expires_at > now

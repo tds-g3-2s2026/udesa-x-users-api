@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from users_api.features.auth.schemas import PASSWORD_MIN_LENGTH, enforce_password_policy
+from users_api.api.schemas.auth import PASSWORD_MIN_LENGTH, enforce_password_policy
 
 
 class ForgotPasswordRequest(BaseModel):

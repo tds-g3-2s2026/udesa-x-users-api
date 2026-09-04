@@ -1,35 +1,20 @@
+"""What an error looks like from the outside.
+
+Turns what the business raises, and what FastAPI's validation rejects, into the
+Problem Details format. The service decides that something failed; this decides
+how the client is told.
+"""
+
 import uuid
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from users_api.app.errors import ProblemError
+
 PROBLEM_MEDIA_TYPE = "application/problem+json"
 _TYPE_BASE = "https://udesa-x.dev/errors"
-
-
-class ProblemError(Exception):
-    """An error that becomes a Problem Details response.
-
-    The format is the one documented in ARQUITECTURA.md, "Formato de error":
-    RFC 9457, which obsoletes RFC 7807 and keeps the same media type.
-    """
-
-    def __init__(
-        self,
-        *,
-        status: int,
-        code: str,
-        title: str,
-        detail: str,
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        super().__init__(detail)
-        self.status = status
-        self.code = code
-        self.title = title
-        self.detail = detail
-        self.headers = headers or {}
 
 
 def problem_response(

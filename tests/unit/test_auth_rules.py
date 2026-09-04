@@ -6,7 +6,9 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
-from users_api.core.security import (
+from users_api.api.schemas.auth import LoginRequest, RegisterRequest
+from users_api.api.schemas.password_reset import ResetPasswordRequest
+from users_api.app.security import (
     TOKEN_ALGORITHM,
     hash_password,
     hash_token,
@@ -14,8 +16,6 @@ from users_api.core.security import (
     load_signing_key,
     verify_password,
 )
-from users_api.features.auth.schemas import LoginRequest, RegisterRequest
-from users_api.features.password_reset.schemas import ResetPasswordRequest
 
 VALID = {
     "email": "alumno@udesa.edu.ar",

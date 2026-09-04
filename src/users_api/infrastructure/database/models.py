@@ -15,7 +15,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from users_api.core.db import Base
+from users_api.infrastructure.database.session import Base
 
 
 class UserModel(Base):

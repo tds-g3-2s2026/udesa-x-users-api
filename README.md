@@ -246,43 +246,34 @@ uv run ruff format --check .
 
 ## Estructura
 
-El código se organiza **por feature**, no por capa: cada carpeta de `features/` es autocontenida
-y se puede leer, mover o extraer entera. Es la misma forma que usa `udesa-x-mobile`.
-
-Y dentro de esa organización, el negocio no depende de la tecnología. Las carpetas de
-`features/` no importan SQLAlchemy ni Redis: declaran qué necesitan y `infrastructure/` lo
+El código se organiza **por capa**, siguiendo el ADR-007. Cada capa tiene un responsable claro y
+el negocio no depende de ninguna tecnología: `app/` declara qué necesita e `infrastructure/` lo
 provee.
 
 ```text
 src/users_api/
 ├── main.py                 # aplicación FastAPI y ciclo de vida de las conexiones
-├── core/                   # transversal, no sabe de ninguna feature
-│   ├── config.py           # configuración leída del entorno
-│   ├── db.py               # sesión y base declarativa
+├── api/                    # lo que se expone hacia afuera
+│   ├── auth.py             # registro, validación, login y cierre de sesión
+│   ├── password_reset.py   # recuperación de contraseña olvidada
+│   ├── health.py           # verificación de dependencias
 │   ├── deps.py             # qué implementación recibe cada interfaz
-│   ├── errors.py           # formato de error RFC 9457
-│   ├── ports.py            # interfaces de correo, límites de uso y sesiones
-│   └── security.py         # hasheo de contraseñas, tokens y JWT
-├── features/               # el negocio, sin nombrar ninguna tecnología
-│   ├── auth/               # registro, validación, login y cierre de sesión
-│   │   ├── domain.py       # User y EmailVerificationToken, con sus reglas
-│   │   ├── repositories.py # qué datos necesita, sin decir de dónde salen
-│   │   ├── router.py
-│   │   ├── schemas.py
-│   │   └── service.py
-│   ├── password_reset/     # recuperación de contraseña olvidada
-│   │   ├── domain.py       # PasswordResetToken
-│   │   ├── repositories.py
-│   │   ├── router.py
-│   │   ├── schemas.py
-│   │   └── service.py
-│   └── health/             # verificación de dependencias
-│       ├── checks.py
-│       └── router.py
-└── infrastructure/         # la tecnología, detrás de esas interfaces
+│   ├── errors.py           # traduce los errores al formato RFC 9457
+│   └── schemas/            # qué entra y qué sale de cada ruta
+├── app/                    # el negocio, sin nombrar ninguna tecnología
+│   ├── models/             # User y los tokens, con sus reglas
+│   ├── repositories/       # interfaces de dónde vive el estado
+│   ├── clients/            # interfaces de lo que habla con un tercero
+│   ├── services/           # los casos de uso
+│   ├── security.py         # hasheo de contraseñas, tokens y JWT
+│   └── errors.py           # el error que levantan los servicios
+├── config/
+│   └── settings.py         # configuración leída del entorno
+└── infrastructure/         # las implementaciones, agrupadas por tecnología
     ├── database/           # tablas de SQLAlchemy y los repositorios que las usan
+    ├── redis/              # contador de intentos y revocación de sesiones
     ├── email/              # en desarrollo escribe el link en el log
-    └── redis/              # contador de intentos y revocación de sesiones
+    └── health.py           # consulta real a PostgreSQL y a Redis
 tests/
 ├── unit/                   # sin dependencias externas, con dobles de las interfaces
 └── integration/            # contra PostgreSQL y Redis reales
@@ -291,12 +282,18 @@ docker/
 └── docker-compose.dev.yml  # servicio, PostgreSQL y Redis
 ```
 
-Una feature puede usar `core/`. Entre features hay una sola dependencia: `password_reset` usa
-`auth`, porque opera sobre las cuentas y las sesiones que `auth` define.
+**La regla es una sola: `app/` no importa nada de `api/` ni de `infrastructure/`.** Se verifica
+leyendo imports, y hoy se cumple: en `app/` no aparecen las palabras `sqlalchemy`, `redis` ni
+`fastapi`.
 
-**`infrastructure/` no aparece importado en ninguna feature.** El único que lo nombra es
-`core/deps.py`, que decide qué clase concreta recibe cada interfaz. Cambiar de motor de base o
-de proveedor de correo es escribir la clase nueva y tocar ese archivo.
+El único módulo que conoce las implementaciones concretas es `api/deps.py`. Cambiar de motor de
+base o de proveedor de correo es escribir la clase nueva en `infrastructure/` y tocar ese
+archivo.
+
+En `app/repositories/` viven las interfaces de todo lo que **almacena estado**: usuarios,
+tokens, contadores de intentos y revocaciones de sesión. Que unas se guarden en PostgreSQL y
+otras en Redis es problema de `infrastructure/`. En `app/clients/` viven las de lo que **habla
+con un tercero**, que hoy es solo el envío de correo.
 
 Cuando se agrega una tabla, su modelo va en `infrastructure/database/models.py`, que es lo que
 `migrations/env.py` importa. Un modelo que quede afuera hace que

@@ -6,15 +6,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from users_api.core.config import Settings
-from users_api.core.errors import ProblemError
-from users_api.core.ports import EmailSender, RateLimiter, SessionStore
-from users_api.core.security import hash_password, hash_token, verify_password
-from users_api.features.auth.domain import User
-from users_api.features.auth.repositories import UserRepository
-from users_api.features.password_reset.domain import PasswordResetToken
-from users_api.features.password_reset.repositories import PasswordResetTokenRepository
-from users_api.features.password_reset.service import PasswordResetService
+from users_api.app.clients.email import EmailSender
+from users_api.app.errors import ProblemError
+from users_api.app.models.tokens import PasswordResetToken
+from users_api.app.models.user import User
+from users_api.app.repositories.rate_limiter import RateLimiter
+from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import PasswordResetTokenRepository
+from users_api.app.repositories.users import UserRepository
+from users_api.app.security import hash_password, hash_token, verify_password
+from users_api.app.services.password_reset import PasswordResetService
+from users_api.config.settings import Settings
 
 CURRENT_PASSWORD = "Contrasena1"
 NEW_PASSWORD = "Contrasena2"

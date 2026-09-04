@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from users_api.core.deps import (
+from users_api.api.deps import (
     EmailSenderDep,
     RateLimiterDep,
     ResetTokenRepositoryDep,
@@ -10,11 +10,11 @@ from users_api.core.deps import (
     SettingsDep,
     UserRepositoryDep,
 )
-from users_api.features.password_reset.schemas import (
+from users_api.api.schemas.password_reset import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
 )
-from users_api.features.password_reset.service import PasswordResetService
+from users_api.app.services.password_reset import PasswordResetService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
