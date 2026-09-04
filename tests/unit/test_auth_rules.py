@@ -29,9 +29,6 @@ def register_payload(**overrides):
     return RegisterRequest(**{**VALID, **overrides})
 
 
-# --- formato del handle -------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "handle",
     ["@alumno", "@a_b_c1", "@AlumnoDeUdesa", "@0123"],
@@ -60,16 +57,10 @@ def test_e1_h1_ca3_handle_is_stored_lowercase():
     assert register_payload(handle="@AlumnoUno").handle == "@alumnouno"
 
 
-# --- formato del email --------------------------------------------------------
-
-
 @pytest.mark.parametrize("email", ["sin-arroba", "@udesa.edu.ar", "alumno@", ""])
 def test_e1_h1_ca2_rejects_invalid_email_format(email):
     with pytest.raises(ValidationError):
         register_payload(email=email)
-
-
-# --- politica de contrasena ---------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -98,9 +89,6 @@ def test_e1_h1_ca4_verification_against_a_missing_hash_fails_without_raising():
     assert not verify_password("Contrasena1", None)
 
 
-# --- campos obligatorios ------------------------------------------------------
-
-
 @pytest.mark.parametrize("field", ["email", "handle", "password"])
 def test_e1_h1_ca5_rejects_empty_required_fields(field):
     with pytest.raises(ValidationError):
@@ -119,15 +107,9 @@ def test_e1_h1_ca5_login_rejects_empty_identifier_or_password():
         LoginRequest(identifier="alumno@udesa.edu.ar", password="")
 
 
-# --- aceptacion de terminos ---------------------------------------------------
-
-
 def test_registration_requires_accepting_the_terms():
     with pytest.raises(ValidationError):
         register_payload(terms_accepted=False)
-
-
-# --- el token de acceso -------------------------------------------------------
 
 
 def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
@@ -180,9 +162,6 @@ def test_signing_key_is_generated_when_none_is_configured():
     assert isinstance(load_signing_key(None), Ed25519PrivateKey)
 
 
-# --- reset con confirmacion doble ---------------------------------------------
-
-
 def reset_payload(**overrides):
     valid = {"token": "un-token", "password": "Contrasena2", "password_confirmation": "Contrasena2"}
     return ResetPasswordRequest(**{**valid, **overrides})
@@ -200,9 +179,6 @@ def test_e1_h5_ca3_reset_requires_matching_confirmation_and_the_password_policy(
     for invalid in ("Corta1", "contrasena2", "ContrasenaSinNumero"):
         with pytest.raises(ValidationError):
             reset_payload(password=invalid, password_confirmation=invalid)
-
-
-# --- verification tokens ------------------------------------------------------
 
 
 def test_verification_tokens_are_stored_hashed():

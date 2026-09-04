@@ -1,9 +1,15 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, status
 
-from users_api.core.deps import get_session
+from users_api.core.deps import (
+    EmailSenderDep,
+    RateLimiterDep,
+    ResetTokenRepositoryDep,
+    SessionStoreDep,
+    SettingsDep,
+    UserRepositoryDep,
+)
 from users_api.features.password_reset.schemas import (
     ForgotPasswordRequest,
     ResetPasswordRequest,
@@ -14,14 +20,20 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 async def get_reset_service(
-    request: Request, session: Annotated[AsyncSession, Depends(get_session)]
+    users: UserRepositoryDep,
+    reset_tokens: ResetTokenRepositoryDep,
+    rate_limiter: RateLimiterDep,
+    sessions: SessionStoreDep,
+    settings: SettingsDep,
+    email_sender: EmailSenderDep,
 ) -> PasswordResetService:
-    state = request.app.state
     return PasswordResetService(
-        session=session,
-        redis=state.redis,
-        settings=state.settings,
-        email_sender=state.email_sender,
+        users=users,
+        reset_tokens=reset_tokens,
+        rate_limiter=rate_limiter,
+        sessions=sessions,
+        settings=settings,
+        email_sender=email_sender,
     )
 
 
