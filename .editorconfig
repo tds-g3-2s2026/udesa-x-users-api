@@ -1,6 +1,6 @@
 # EditorConfig - https://editorconfig.org
-# Este archivo se sincroniza desde udesa-x-platform hacia todos los repos.
-# No editar la copia local: editar la fuente en udesa-x-platform y sincronizar.
+# Synced from udesa-x-platform to every repo. Do not edit the local copy:
+# edit the source in udesa-x-platform and run the sync.
 
 root = true
 
