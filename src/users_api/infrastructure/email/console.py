@@ -29,3 +29,10 @@ class ConsoleEmailSender(EmailSender):
             to,
             reset_url,
         )
+
+    async def send_password_changed(self, *, to: str) -> None:
+        logger.info(
+            "Correo de aviso para %s: la contraseña de la cuenta fue modificada. "
+            "Si no fuiste vos, recuperá el acceso desde Olvidé mi contraseña",
+            to,
+        )

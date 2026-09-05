@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     admin_login_max_attempts: int = 3
     admin_login_lockout_minutes: int = 30
 
+    # Changing a known password re-checks the current one, and that check gets
+    # three attempts and the same fifteen minute window as the login.
+    change_password_max_attempts: int = 3
+    change_password_lockout_minutes: int = 15
+
     # The first superadmin is seeded by `python -m users_api.seed_superadmin`,
     # never through the panel: there is no panel without a login and no login
     # without an account. Both values must be set for the command to run.

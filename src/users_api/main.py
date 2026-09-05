@@ -14,6 +14,7 @@ from users_api.api.errors import (
     validation_error_handler,
 )
 from users_api.api.health import router as health_router
+from users_api.api.password_change import router as password_change_router
 from users_api.api.password_reset import router as password_reset_router
 from users_api.app.errors import ProblemError
 from users_api.app.security import load_signing_key
@@ -70,3 +71,4 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_auth_router)
 app.include_router(password_reset_router)
+app.include_router(password_change_router)

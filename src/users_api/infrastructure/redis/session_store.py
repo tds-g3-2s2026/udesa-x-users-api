@@ -7,7 +7,7 @@ on its own. That is what keeps this from growing without bound.
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from redis.asyncio import Redis
 
@@ -39,3 +39,14 @@ class RedisSessionStore(SessionStore):
             int(now.timestamp()),
             ex=ttl_seconds,
         )
+
+    async def is_token_revoked(self, jti: str) -> bool:
+        return await self.redis.exists(revoked_token_key(jti)) == 1
+
+    async def revoked_before(self, user_id: uuid.UUID) -> datetime | None:
+        cutoff = await self.redis.get(revoked_sessions_key(user_id))
+        if cutoff is None:
+            return None
+        # Written as a Unix timestamp, read back as an aware instant so the
+        # caller compares it against the token's iat without juggling formats.
+        return datetime.fromtimestamp(int(cutoff), tz=UTC)
