@@ -189,7 +189,7 @@ def test_verification_tokens_are_stored_hashed():
     assert hash_token("un-token-cualquiera") == digest
 
 
-def test_change_password_requires_the_three_fields():
+def test_e1_h13_ca1_change_password_requires_the_three_fields():
     """The form asks for the current password, the new one and its confirmation.
 
     Checked on the schema and not only on the screen: a client that skips a
@@ -202,7 +202,7 @@ def test_change_password_requires_the_three_fields():
     assert missing == {"password", "password_confirmation"}
 
 
-def test_change_password_requires_the_confirmation_to_match():
+def test_e1_h13_ca1_change_password_requires_the_confirmation_to_match():
     with pytest.raises(ValidationError) as error:
         ChangePasswordRequest(
             current_password=VALID["password"],

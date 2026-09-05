@@ -27,7 +27,7 @@ async def signed_in(api) -> str:
     return (await api.login()).json()["access_token"]
 
 
-async def test_change_password_rejects_a_weak_or_repeated_password(api):
+async def test_e1_h13_ca2_rejects_a_weak_or_repeated_password(api):
     token = await signed_in(api)
 
     weak = await api.change_password(token, CURRENT_PASSWORD, "minuscula")
@@ -43,7 +43,7 @@ async def test_change_password_rejects_a_weak_or_repeated_password(api):
     assert (await api.login()).status_code == 200
 
 
-async def test_change_password_revokes_every_session_including_the_current_one(api):
+async def test_e1_h13_ca3_revokes_every_session_including_the_current_one(api):
     token = await signed_in(api)
     # A second session, as if it were from another device.
     other_device = (await api.login()).json()["access_token"]
@@ -65,7 +65,7 @@ async def test_change_password_revokes_every_session_including_the_current_one(a
     assert (await api.login(password=NEW_PASSWORD)).status_code == 200
 
 
-async def test_change_password_locks_the_account_after_three_wrong_current_passwords(api):
+async def test_e1_h13_ca4_locks_the_account_after_three_wrong_current_passwords(api):
     token = await signed_in(api)
 
     for _ in range(3):
@@ -91,7 +91,7 @@ async def test_change_password_locks_the_account_after_three_wrong_current_passw
     assert (await api.login()).status_code == 200
 
 
-async def test_change_password_sends_a_notification_email(api):
+async def test_e1_h13_ca5_sends_a_notification_email(api):
     token = await signed_in(api)
     api.caplog.clear()
 
@@ -101,7 +101,7 @@ async def test_change_password_sends_a_notification_email(api):
     assert REGISTRATION["email"].lower() in api.caplog.text
 
 
-async def test_the_notification_is_not_sent_when_the_change_fails(api):
+async def test_e1_h13_ca5_notification_is_not_sent_when_the_change_fails(api):
     token = await signed_in(api)
     api.caplog.clear()
 
