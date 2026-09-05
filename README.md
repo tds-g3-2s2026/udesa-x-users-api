@@ -237,6 +237,36 @@ Los de integración aplican la migración real antes de correr, así que tambié
 esquema coincida con los modelos: una columna agregada sin su migración falla acá y no en
 producción.
 
+### Como los corre el CI: dentro de la imagen
+
+Lo de arriba corre sobre tu máquina y sirve para iterar. **El CI los corre adentro de la imagen
+Docker del servicio**, que es lo que hace que el resultado no dependa de cómo esté armada la
+máquina. El `Dockerfile` tiene un stage `test` que suma las dependencias de desarrollo y la
+carpeta `tests/` sobre el mismo build que va a producción.
+
+Para reproducirlo hay un servicio en el compose que construye ese stage y lo corre contra
+PostgreSQL y Redis, esperando a que estén sanos:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml run --rm tests
+```
+
+Ese servicio **no monta el código como volumen** a propósito. Montarlo reemplazaría lo que hay
+adentro de la imagen por lo que hay en el disco, y se dejaría de probar el artefacto que
+efectivamente se despliega, que es todo el punto de correrlos así.
+
+Adentro del contenedor los nombres de host son `postgres` y `redis`, no `localhost`: ahí
+`localhost` es el propio contenedor. El CI usa `--network host` en su lugar, que en los
+runners de Linux hace que el contenedor comparta la red de la máquina; en Docker Desktop sobre
+Windows o macOS eso no funciona igual.
+
+La suite corre como el usuario `app`, sin privilegios, igual que el servicio en producción.
+Correrla como `root` escondería cualquier problema de permisos hasta después de desplegar.
+
+La versión de Python está fijada en `.python-version`. Sin ese archivo, `uv` toma la más nueva
+que encuentre y podrías terminar probando en una versión distinta de la que corre en
+producción, lo que además hace que el porcentaje de cobertura no coincida con el del CI.
+
 ## Lint
 
 ```bash

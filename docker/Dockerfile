@@ -6,18 +6,37 @@ WORKDIR /app
 
 # Dependencies are installed before copying the source so the layer cache
 # survives any change under src/.
-COPY pyproject.toml ./
-RUN uv sync --no-dev --no-install-project
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
 
 COPY src/ ./src/
 COPY alembic.ini ./
 COPY migrations/ ./migrations/
-RUN uv sync --no-dev
+RUN uv sync --locked --no-dev
+
+# Tests only. Sits before the final stage because `docker build` without
+# --target builds the last one, and that has to be production.
+FROM builder AS test
+
+# Without --no-dev: pytest and the test tooling land in the same venv.
+RUN uv sync --locked
+COPY tests/ ./tests/
+
+# Same privileges as production: as root, a permission bug shows up after deploy.
+RUN useradd --create-home --uid 1000 app && chown -R app:app /app
+USER app
+
+CMD ["uv", "run", "--no-sync", "pytest", \
+     "--cov=src", "--cov-report=xml", "--cov-report=term", \
+     "--junitxml=report.xml"]
 
 # Final stage: only the venv and the source, without uv or build tooling.
 FROM python:3.13-slim
 
-RUN useradd --create-home --uid 1000 app
+# pip is never used at runtime and the libraries it vendors were the only
+# fixable CVEs in this image.
+RUN python -m pip uninstall --yes --quiet pip \
+    && useradd --create-home --uid 1000 app
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
@@ -31,6 +50,10 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 USER app
 EXPOSE 8000
+
+# urllib and not curl: the slim image has none and it is not worth a package.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthcheck')"]
 
 # One worker per process: scaling is the orchestrator's job. With several workers
 # inside the container, a hung one goes unnoticed by every probe.
