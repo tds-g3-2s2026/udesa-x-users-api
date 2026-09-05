@@ -11,7 +11,7 @@ can do live on the dataclasses under each feature's `domain.py`.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,6 +20,9 @@ from users_api.infrastructure.database.session import Base
 
 class UserModel(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("role IN ('user', 'moderator', 'superadmin')", name="ck_users_role"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -33,6 +36,11 @@ class UserModel(Base):
 
     # Only the argon2id digest is stored, never the password.
     password_hash: Mapped[str] = mapped_column(String(255))
+
+    # Text plus a CHECK rather than a native ENUM: adding a value is then an
+    # ordinary migration instead of an ALTER TYPE outside a transaction. The
+    # allowed values are the `Role` enum in `app/models/user.py`.
+    role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
 
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 

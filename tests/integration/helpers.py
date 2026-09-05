@@ -32,6 +32,11 @@ class Api:
             "/auth/login", json={"identifier": identifier, "password": password}
         )
 
+    async def admin_login(self, email=REGISTRATION["email"], password=REGISTRATION["password"]):
+        return await self.client.post(
+            "/admin/auth/login", json={"email": email, "password": password}
+        )
+
     async def logout(self, token: str):
         return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
 

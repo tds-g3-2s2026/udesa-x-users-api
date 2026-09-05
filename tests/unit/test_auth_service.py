@@ -16,7 +16,7 @@ import pytest
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken
-from users_api.app.models.user import User
+from users_api.app.models.user import Role, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import EmailVerificationTokenRepository
@@ -270,6 +270,103 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
     claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
     assert claims["sub"] == str(user.id)
     assert claims["role"] == "user"
+
+
+async def test_e5_h2_ca1_the_app_login_reports_the_real_role(service, doubles, signing_key):
+    doubles["users"].find_by_identifier.return_value = build_user(role=Role.MODERATOR)
+
+    token, _ = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+
+    claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
+    assert claims["role"] == "moderator"
+
+
+async def test_e5_h2_ca1_the_admin_login_clears_its_counter_and_signs_the_role(
+    service, doubles, signing_key
+):
+    user = build_user(email="admin@udesa.edu.ar", role=Role.SUPERADMIN)
+    doubles["users"].find_by_email.return_value = user
+
+    token, expires_in = await service.admin_login(email="Admin@udesa.edu.ar", password=PASSWORD)
+
+    # Looked up by the normalised email only: the backoffice has no handle login.
+    doubles["users"].find_by_email.assert_awaited_once_with("admin@udesa.edu.ar")
+    doubles["rate_limiter"].reset.assert_awaited_once_with("admin-login:failed:admin@udesa.edu.ar")
+    assert expires_in == 15 * 60
+
+    claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
+    assert claims["sub"] == str(user.id)
+    assert claims["role"] == "superadmin"
+
+
+async def test_e5_h2_ca2_a_regular_user_with_the_right_password_gets_403_and_no_strike(
+    service, doubles
+):
+    doubles["users"].find_by_email.return_value = build_user(role=Role.USER)
+
+    with pytest.raises(ProblemError) as raised:
+        await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
+
+    assert raised.value.status == 403
+    assert raised.value.code == "not-an-administrator"
+    # Ownership was proven; what is missing is the permission, not a strike.
+    doubles["rate_limiter"].hit.assert_not_awaited()
+
+
+async def test_e5_h2_ca2_an_unverified_administrator_is_not_asked_for_the_mailbox(service, doubles):
+    # Administrators are seeded or created by a superadmin, never self-registered,
+    # so the verification flag plays no part at this door.
+    doubles["users"].find_by_email.return_value = build_user(
+        role=Role.MODERATOR, is_email_verified=False
+    )
+
+    token, _ = await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
+    assert token
+
+
+async def test_e5_h2_ca3_a_wrong_password_counts_against_the_admin_door_only(service, doubles):
+    doubles["users"].find_by_email.return_value = build_user(role=Role.SUPERADMIN)
+
+    with pytest.raises(ProblemError) as raised:
+        await service.admin_login(email="alumno@udesa.edu.ar", password="Incorrecta1")
+
+    assert raised.value.status == 401
+    assert raised.value.detail == INVALID_CREDENTIALS
+    doubles["rate_limiter"].hit.assert_awaited_once_with(
+        "admin-login:failed:alumno@udesa.edu.ar", window_seconds=30 * 60
+    )
+
+
+async def test_e5_h2_ca3_three_failures_lock_the_admin_door_for_thirty_minutes(service, doubles):
+    doubles["rate_limiter"].count.return_value = 3
+
+    with pytest.raises(ProblemError) as raised:
+        await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
+
+    assert raised.value.status == 429
+    assert raised.value.headers["Retry-After"] == str(30 * 60)
+    doubles["users"].find_by_email.assert_not_awaited()
+
+
+async def test_e5_h2_ca3_three_failures_do_not_lock_the_app_door(service, doubles):
+    # Same count, other policy: the app tolerates five.
+    doubles["rate_limiter"].count.return_value = 3
+    doubles["users"].find_by_identifier.return_value = build_user()
+
+    token, _ = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    assert token
+
+
+async def test_e5_h2_a_suspended_administrator_is_refused_once_the_password_is_proven(
+    service, doubles
+):
+    doubles["users"].find_by_email.return_value = build_user(role=Role.MODERATOR, is_suspended=True)
+
+    with pytest.raises(ProblemError) as raised:
+        await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
+
+    assert raised.value.status == 403
+    assert raised.value.code == "account-suspended"
 
 
 async def test_e1_h3_ca1_logging_out_revokes_the_token_until_it_would_have_expired(
