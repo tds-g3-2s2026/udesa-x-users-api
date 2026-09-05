@@ -1,6 +1,6 @@
 import re
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 
 # Starts with @, then 4 to 15 characters, letters, digits and underscores only.
 # The @ is read as a prefix and not counted towards the length; worth confirming
@@ -21,6 +21,20 @@ def enforce_password_policy(value: str) -> str:
         raise ValueError("La contraseña debe tener al menos una mayúscula")
     if not any(character.isdigit() for character in value):
         raise ValueError("La contraseña debe tener al menos un número")
+    return value
+
+
+def enforce_confirmation_matches(value: str, info: ValidationInfo) -> str:
+    """The double confirmation, in one place.
+
+    Resetting a forgotten password and changing a known one both ask for it, so
+    they share this instead of each keeping a copy that could drift apart.
+
+    When the password itself broke the policy it is missing from info.data, and
+    reporting a mismatch on top of that would only add noise.
+    """
+    if "password" in info.data and value != info.data["password"]:
+        raise ValueError("Las contraseñas no coinciden")
     return value
 
 
