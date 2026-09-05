@@ -24,6 +24,22 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_lockout_minutes: int = 15
 
+    # The backoffice door is stricter: three attempts, thirty minutes.
+    admin_login_max_attempts: int = 3
+    admin_login_lockout_minutes: int = 30
+
+    # The first superadmin is seeded by `python -m users_api.seed_superadmin`,
+    # never through the panel: there is no panel without a login and no login
+    # without an account. Both values must be set for the command to run.
+    superadmin_email: str | None = None
+    superadmin_password: str | None = None
+    # `users.handle` is NOT NULL and unique, so the seeded account needs one.
+    superadmin_handle: str = "@superadmin"
+
+    # Browser origins allowed to call the API. Empty means no browser at all:
+    # mobile is not subject to CORS, only the backoffice is. Set as a JSON list.
+    cors_allowed_origins: list[str] = []
+
     # The verification link expires and can be requested again.
     email_verification_hours: int = 24
 

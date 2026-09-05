@@ -73,6 +73,12 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class AdminLoginRequest(BaseModel):
+    # The backoffice asks for the email, not the handle (E5-H2).
+    email: EmailStr
+    password: str = Field(min_length=1)
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

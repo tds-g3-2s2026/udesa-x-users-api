@@ -27,10 +27,27 @@ INVALID_CREDENTIALS = "Credenciales inválidas"
 SUSPENDED_ACCOUNT = "Cuenta suspendida"
 UNVERIFIED_ACCOUNT = "Revisá tu casilla de correo para validar la cuenta antes de ingresar"
 INVALID_TOKEN = "El token no es válido"
+NOT_AN_ADMINISTRATOR = "Esta cuenta no tiene acceso al backoffice"
 
 
-def lockout_key(identifier: str) -> str:
-    return f"login:failed:{identifier.strip().lower()}"
+@dataclass(frozen=True)
+class LoginPolicy:
+    """How many failures a door tolerates, and for how long it then stays shut.
+
+    The app and the backoffice are two doors with two policies (T-26). Each has
+    its own key prefix, so failing at one never counts against the other.
+    """
+
+    key_prefix: str
+    max_attempts: int
+    lockout_minutes: int
+
+    def key(self, identifier: str) -> str:
+        return f"{self.key_prefix}:failed:{identifier.strip().lower()}"
+
+    @property
+    def window_seconds(self) -> int:
+        return self.lockout_minutes * 60
 
 
 @dataclass
@@ -125,15 +142,32 @@ class AuthService:
             return
         await self.issue_verification_token(user, now=datetime.now(UTC))
 
+    @property
+    def app_login_policy(self) -> LoginPolicy:
+        return LoginPolicy(
+            key_prefix="login",
+            max_attempts=self.settings.login_max_attempts,
+            lockout_minutes=self.settings.login_lockout_minutes,
+        )
+
+    @property
+    def admin_login_policy(self) -> LoginPolicy:
+        return LoginPolicy(
+            key_prefix="admin-login",
+            max_attempts=self.settings.admin_login_max_attempts,
+            lockout_minutes=self.settings.admin_login_lockout_minutes,
+        )
+
     async def login(self, *, identifier: str, password: str) -> tuple[str, int]:
-        await self.guard_lockout(identifier)
+        policy = self.app_login_policy
+        await self.guard_lockout(identifier, policy)
 
         user = await self.users.find_by_identifier(identifier.strip().lower())
 
         # The password is always verified, even when the account does not exist,
         # so the response time does not reveal which accounts are registered.
         if not verify_password(password, user.password_hash if user else None):
-            await self.register_failure(identifier)
+            await self.register_failure(identifier, policy)
             raise ProblemError(
                 status=401,
                 code="invalid-credentials",
@@ -160,18 +194,63 @@ class AuthService:
                 detail=UNVERIFIED_ACCOUNT,
             )
 
-        await self.rate_limiter.reset(lockout_key(identifier))
+        await self.rate_limiter.reset(policy.key(identifier))
+        return self.issue_session(user)
+
+    async def admin_login(self, *, email: str, password: str) -> tuple[str, int]:
+        """The backoffice door: same credentials, stricter policy, role required.
+
+        Administrators are created by a superadmin or seeded, never
+        self-registered, so there is no email verification to check here.
+        """
+        policy = self.admin_login_policy
+        await self.guard_lockout(email, policy)
+
+        user = await self.users.find_by_email(email.strip().lower())
+
+        if not verify_password(password, user.password_hash if user else None):
+            await self.register_failure(email, policy)
+            raise ProblemError(
+                status=401,
+                code="invalid-credentials",
+                title="No se pudo iniciar sesión",
+                detail=INVALID_CREDENTIALS,
+            )
+
+        # 403 and not 401: the caller proved they own the account, what they lack
+        # is the permission. Not counted as a failure either, since a correct
+        # password is not a brute force signal.
+        if not user.is_administrator:
+            raise ProblemError(
+                status=403,
+                code="not-an-administrator",
+                title="No se pudo iniciar sesión",
+                detail=NOT_AN_ADMINISTRATOR,
+            )
+
+        if not user.can_log_in:
+            raise ProblemError(
+                status=403,
+                code="account-suspended",
+                title="No se pudo iniciar sesión",
+                detail=SUSPENDED_ACCOUNT,
+            )
+
+        await self.rate_limiter.reset(policy.key(email))
+        return self.issue_session(user)
+
+    def issue_session(self, user: User) -> tuple[str, int]:
         token = issue_access_token(
             self.signing_key,
             subject=user.id,
-            role="user",
+            role=user.role.value,
             expires_in_minutes=self.settings.access_token_minutes,
         )
         return token, self.settings.access_token_minutes * 60
 
-    async def guard_lockout(self, identifier: str) -> None:
-        failures = await self.rate_limiter.count(lockout_key(identifier))
-        if failures >= self.settings.login_max_attempts:
+    async def guard_lockout(self, identifier: str, policy: LoginPolicy) -> None:
+        failures = await self.rate_limiter.count(policy.key(identifier))
+        if failures >= policy.max_attempts:
             # 429 and not 401: what is being rejected is the rate, not the
             # credentials.
             raise ProblemError(
@@ -179,22 +258,18 @@ class AuthService:
                 code="too-many-attempts",
                 title="Demasiados intentos",
                 detail=(
-                    "La cuenta quedó bloqueada temporalmente por "
-                    f"{self.settings.login_lockout_minutes} minutos"
+                    f"La cuenta quedó bloqueada temporalmente por {policy.lockout_minutes} minutos"
                 ),
-                headers={"Retry-After": str(self.settings.login_lockout_minutes * 60)},
+                headers={"Retry-After": str(policy.window_seconds)},
             )
 
-    async def register_failure(self, identifier: str) -> None:
+    async def register_failure(self, identifier: str, policy: LoginPolicy) -> None:
         """Count the failure and start the window on the first one.
 
         The counter is keyed by identifier and not by account id, so attempts
         against addresses that do not exist are counted the same way.
         """
-        await self.rate_limiter.hit(
-            lockout_key(identifier),
-            window_seconds=self.settings.login_lockout_minutes * 60,
-        )
+        await self.rate_limiter.hit(policy.key(identifier), window_seconds=policy.window_seconds)
 
     async def logout(self, token: str) -> None:
         """Revoke the token that was used to call this.

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.app.models.user import User
+from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.infrastructure.database.models import UserModel
 
@@ -27,6 +27,7 @@ def to_domain(row: UserModel) -> User:
         email=row.email,
         handle=row.handle,
         password_hash=row.password_hash,
+        role=Role(row.role),
         is_email_verified=row.is_email_verified,
         is_suspended=row.is_suspended,
         deleted_at=row.deleted_at,
@@ -45,6 +46,7 @@ class SqlAlchemyUserRepository(UserRepository):
             email=user.email,
             handle=user.handle,
             password_hash=user.password_hash,
+            role=user.role.value,
             is_email_verified=user.is_email_verified,
             is_suspended=user.is_suspended,
             deleted_at=user.deleted_at,
@@ -84,6 +86,7 @@ class SqlAlchemyUserRepository(UserRepository):
         if row is None:
             return
         row.password_hash = user.password_hash
+        row.role = user.role.value
         row.is_email_verified = user.is_email_verified
         row.is_suspended = user.is_suspended
         row.deleted_at = user.deleted_at

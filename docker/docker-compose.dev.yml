@@ -11,10 +11,17 @@ services:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
       PUBLIC_BASE_URL: http://localhost:8000
+      # First superadmin credentials, development only. Production gets them
+      # through SOPS. The seed does nothing when the account already exists.
+      SUPERADMIN_EMAIL: admin@udesa.edu.ar
+      SUPERADMIN_PASSWORD: Admin1234
+      # Local backoffice origins: Vite (5173) and the nginx container (5174).
+      CORS_ALLOWED_ORIGINS: '["http://localhost:5173", "http://localhost:5174"]'
       # JWT_PRIVATE_KEY is left unset on purpose: development mints an ephemeral
       # pair, so no key is ever versioned. Production gets it through SOPS.
     command: >-
       sh -c "alembic upgrade head &&
+             python -m users_api.seed_superadmin &&
              uvicorn users_api.main:app --host 0.0.0.0 --port 8000 --workers 1"
     depends_on:
       postgres:

@@ -10,7 +10,8 @@ Microservicio backend responsable de la gestión de identidades, registro de usu
 docker compose -f docker/docker-compose.dev.yml up --build
 ```
 
-Levanta el servicio junto con PostgreSQL y Redis. Cuando los tres estén arriba:
+Levanta el servicio junto con PostgreSQL y Redis, aplica las migraciones y siembra el primer
+superadmin (`admin@udesa.edu.ar` / `Admin1234`, solo para desarrollo). Cuando los tres estén arriba:
 
 ```bash
 curl http://localhost:8000/healthcheck
@@ -28,7 +29,8 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/register` | Crea la cuenta y envía el link de verificación |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
-| `POST /auth/login` | Devuelve el access token |
+| `POST /auth/login` | Devuelve el access token. El claim `role` lleva el rol real de la cuenta |
+| `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
 | `POST /auth/logout` | Revoca el token de sesión activo |
 | `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
@@ -40,6 +42,34 @@ docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.
 ```
 
 La documentación interactiva queda en `http://localhost:8000/docs`.
+
+## Configuración
+
+Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL`:
+
+| Variable | Default | Para qué |
+|---|---|---|
+| `JWT_PRIVATE_KEY` | efímera | Clave Ed25519 en PEM. Sin definir, se genera una por arranque |
+| `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
+| `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
+| `ADMIN_LOGIN_MAX_ATTEMPTS` / `ADMIN_LOGIN_LOCKOUT_MINUTES` | `3` / `30` | Bloqueo del login del backoffice. Contador independiente del de la app |
+| `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | sin definir | Credenciales del primer superadmin, que siembra el comando de abajo |
+| `SUPERADMIN_HANDLE` | `@superadmin` | Handle de esa cuenta: la columna es obligatoria y única |
+| `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
+
+## Primer superadmin
+
+El panel no puede crear al primer administrador porque nadie puede entrar al panel todavía. Se
+siembra con un comando que corre antes de arrancar la API; en desarrollo lo dispara el compose,
+en producción es un job del despliegue, con las credenciales por SOPS:
+
+```bash
+SUPERADMIN_EMAIL=admin@udesa.edu.ar SUPERADMIN_PASSWORD=Admin1234 uv run python -m users_api.seed_superadmin
+```
+
+Es idempotente: si la cuenta existe, no la toca (ni rol ni contraseña) y termina con código `0`.
+Sin las dos variables, o con una contraseña que no cumpla la política del registro, termina con
+código `2` y no abre conexión. Los administradores siguientes se crean desde el panel (`E5-H1`).
 
 ## Migraciones
 
@@ -213,6 +243,19 @@ docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revok
 
 Pedir más de tres links en una hora para el mismo identificador devuelve `429` (`E1-H5 CA.8`).
 
+### 8. Entrar al backoffice como superadmin
+
+El superadmin sembrado por el compose entra por la puerta del backoffice y el token lleva su rol:
+
+```powershell
+curl.exe -X POST http://localhost:8000/admin/auth/login -H "Content-Type: application/json" -d '{\"email\":\"admin@udesa.edu.ar\",\"password\":\"Admin1234\"}'
+```
+
+El usuario del paso 1 tiene la contraseña correcta pero no el rol, así que recibe `403` con
+`type` terminado en `/not-an-administrator` (`E5-H2 CA.2`). Tres contraseñas equivocadas seguidas
+bloquean esta puerta por 30 minutos con `429` y `Retry-After: 1800` (`E5-H2 CA.3`); el login de
+la app del mismo usuario no se entera, porque cada puerta lleva su contador.
+
 Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
 
 ## Correr los tests
@@ -248,7 +291,7 @@ Para reproducirlo hay un servicio en el compose que construye ese stage y lo cor
 PostgreSQL y Redis, esperando a que estén sanos:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml run --rm tests
+docker compose -f docker/docker-compose.dev.yml run --rm --build tests
 ```
 
 Ese servicio **no monta el código como volumen** a propósito. Montarlo reemplazaría lo que hay
@@ -283,8 +326,10 @@ provee.
 ```text
 src/users_api/
 ├── main.py                 # aplicación FastAPI y ciclo de vida de las conexiones
+├── seed_superadmin.py      # siembra del primer administrador, otro punto de entrada
 ├── api/                    # lo que se expone hacia afuera
 │   ├── auth.py             # registro, validación, login y cierre de sesión
+│   ├── admin_auth.py       # login del backoffice, con su propia política
 │   ├── password_reset.py   # recuperación de contraseña olvidada
 │   ├── health.py           # verificación de dependencias
 │   ├── deps.py             # qué implementación recibe cada interfaz
