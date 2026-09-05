@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from users_api.api.admin_auth import router as admin_auth_router
 from users_api.api.auth import router as auth_router
 from users_api.api.errors import (
     problem_error_handler,
@@ -48,9 +50,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="UdeSA-X Users API", version="0.1.0", lifespan=lifespan)
 
+# Middleware has to be in place before the first request builds the stack, so
+# the origins are read here and not in the lifespan. Only the backoffice runs in
+# a browser; with the list empty no browser origin gets through.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_settings().cors_allowed_origins,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+    # The lockout answer carries how long to wait; without this the browser
+    # hides the header from the page.
+    expose_headers=["Retry-After"],
+)
+
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(admin_auth_router)
 app.include_router(password_reset_router)

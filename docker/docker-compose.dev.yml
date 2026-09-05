@@ -11,11 +11,18 @@ services:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
       PUBLIC_BASE_URL: http://localhost:8000
+      # Credenciales del primer superadmin, solo para desarrollo. En produccion
+      # llegan por SOPS. El comando de siembra no hace nada si la cuenta existe.
+      SUPERADMIN_EMAIL: admin@udesa.edu.ar
+      SUPERADMIN_PASSWORD: Admin1234
+      # Origenes del backoffice local: Vite (5173) y el contenedor con nginx (5174).
+      CORS_ALLOWED_ORIGINS: '["http://localhost:5173", "http://localhost:5174"]'
       # JWT_PRIVATE_KEY queda sin definir a proposito: en desarrollo el servicio
       # genera un par efimero y avisa por log, asi no hay ninguna clave privada
       # versionada. En produccion la clave llega por SOPS.
     command: >-
       sh -c "alembic upgrade head &&
+             python -m users_api.seed_superadmin &&
              uvicorn users_api.main:app --host 0.0.0.0 --port 8000 --workers 1"
     depends_on:
       postgres:
