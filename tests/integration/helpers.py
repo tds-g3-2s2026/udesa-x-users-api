@@ -40,6 +40,23 @@ class Api:
     async def logout(self, token: str):
         return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
 
+    async def change_password(
+        self,
+        token: str,
+        current: str,
+        new: str,
+        confirmation: str | None = None,
+    ):
+        return await self.client.post(
+            "/me/change-password",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "current_password": current,
+                "password": new,
+                "password_confirmation": new if confirmation is None else confirmation,
+            },
+        )
+
     def last_emailed_token(self) -> str:
         # The console adapter writes the link; this is what the mail would
         # carry. Verification and reset links are logged the same way, so this

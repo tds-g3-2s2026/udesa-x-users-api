@@ -1,6 +1,10 @@
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from users_api.api.schemas.auth import PASSWORD_MIN_LENGTH, enforce_password_policy
+from users_api.api.schemas.auth import (
+    PASSWORD_MIN_LENGTH,
+    enforce_confirmation_matches,
+    enforce_password_policy,
+)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -30,10 +34,5 @@ class ResetPasswordRequest(BaseModel):
         check reports an empty field name and the app cannot tell which input to
         mark. Checked here and not only in the app, so the guarantee does not
         depend on the client.
-
-        When the password itself broke the policy it is missing from info.data,
-        and reporting a mismatch on top of that would only add noise.
         """
-        if "password" in info.data and value != info.data["password"]:
-            raise ValueError("Las contraseñas no coinciden")
-        return value
+        return enforce_confirmation_matches(value, info)

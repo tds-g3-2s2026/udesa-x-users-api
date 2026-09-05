@@ -7,6 +7,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
 from users_api.api.schemas.auth import LoginRequest, RegisterRequest
+from users_api.api.schemas.password_change import ChangePasswordRequest
 from users_api.api.schemas.password_reset import ResetPasswordRequest
 from users_api.app.security import (
     TOKEN_ALGORITHM,
@@ -186,3 +187,29 @@ def test_verification_tokens_are_stored_hashed():
     assert digest != "un-token-cualquiera"
     assert len(digest) == 64
     assert hash_token("un-token-cualquiera") == digest
+
+
+def test_change_password_requires_the_three_fields():
+    """The form asks for the current password, the new one and its confirmation.
+
+    Checked on the schema and not only on the screen: a client that skips a
+    field has to be refused by the service too.
+    """
+    with pytest.raises(ValidationError) as error:
+        ChangePasswordRequest(current_password=VALID["password"])
+
+    missing = {problem["loc"][0] for problem in error.value.errors()}
+    assert missing == {"password", "password_confirmation"}
+
+
+def test_change_password_requires_the_confirmation_to_match():
+    with pytest.raises(ValidationError) as error:
+        ChangePasswordRequest(
+            current_password=VALID["password"],
+            password="Contrasena2",
+            password_confirmation="Contrasena3",
+        )
+
+    problems = error.value.errors()
+    assert [problem["loc"][0] for problem in problems] == ["password_confirmation"]
+    assert "no coinciden" in problems[0]["msg"]
