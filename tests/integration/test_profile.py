@@ -1,8 +1,8 @@
-"""Leer y editar el propio perfil.
+"""Reading and editing one's own profile.
 
-`GET /me` y `PATCH /me` son el primer par de endpoints del servicio que solo
-tiene sentido llamar estando autenticado, así que buena parte de lo que se
-prueba acá es esa autenticación en sí, no solo el perfil.
+`GET /me` and `PATCH /me` are the first pair of endpoints in the service that
+only make sense to call while authenticated, so a good part of what gets
+tested here is that authentication itself, not only the profile.
 """
 
 import os
@@ -46,7 +46,7 @@ async def test_e1_h6_ca2_email_cannot_be_changed(api):
     assert response.status_code == 422
     assert [error["field"] for error in response.json()["errors"]] == ["email"]
 
-    # Y el intento no cambio nada.
+    # And the attempt changed nothing.
     assert (await api.get_profile(token)).json()["email"] == REGISTRATION["email"].lower()
 
 
@@ -58,7 +58,7 @@ async def test_e1_h6_ca3_updates_bio_and_display_name(api):
     assert response.json()["display_name"] == "Juan Perez"
     assert response.json()["bio"] == "Estudiante"
 
-    # Persiste: una lectura aparte lo confirma.
+    # It persists: a separate read confirms it.
     profile = await api.get_profile(token)
     assert profile.json()["display_name"] == "Juan Perez"
     assert profile.json()["bio"] == "Estudiante"

@@ -171,12 +171,12 @@ def reset_payload(**overrides):
 def test_e1_h5_ca3_reset_requires_matching_confirmation_and_the_password_policy():
     assert reset_payload().password == "Contrasena2"
 
-    # La confirmacion tiene que coincidir.
+    # The confirmation has to match.
     with pytest.raises(ValidationError):
         reset_payload(password_confirmation="Contrasena3")
 
-    # Y la contrasena nueva pasa por la misma politica que la del registro,
-    # porque las dos clases validan con la misma funcion.
+    # And the new password goes through the same policy as registration,
+    # because both classes validate with the same function.
     for invalid in ("Corta1", "contrasena2", "ContrasenaSinNumero"):
         with pytest.raises(ValidationError):
             reset_payload(password=invalid, password_confirmation=invalid)

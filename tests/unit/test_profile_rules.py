@@ -17,13 +17,13 @@ def test_e1_h6_ca1_rejects_text_over_the_maximum_length():
         UpdateProfileRequest(bio="a" * (BIO_MAX_LENGTH + 1))
     assert field_errors(error.value) == ["bio"]
 
-    # El limite se mide sobre lo que mando el cliente, antes de sanitizar: si
-    # se midiera despues, un texto lleno de tags podria colarse por debajo del
-    # limite una vez que las etiquetas se recortan.
+    # The limit is measured on what the client sent, before sanitizing: measured
+    # afterwards, a text full of tags could sneak under the limit once the tags
+    # get trimmed off.
     with pytest.raises(ValidationError):
         UpdateProfileRequest(display_name="<b>" + "a" * DISPLAY_NAME_MAX_LENGTH + "</b>")
 
-    # Justo en el limite, sin tags, entra.
+    # Right at the limit, with no tags, it is accepted.
     assert UpdateProfileRequest(bio="a" * BIO_MAX_LENGTH).bio == "a" * BIO_MAX_LENGTH
 
 
@@ -51,7 +51,7 @@ def test_e1_h6_ca5_rejects_a_blank_display_name(blank):
 
 
 def test_e1_h6_ca5_a_blank_bio_is_allowed():
-    # A la biografia no la alcanza la misma regla: se puede vaciar.
+    # The bio is not held to the same rule: it can be cleared out.
     assert UpdateProfileRequest(bio="   ").bio == ""
 
 
