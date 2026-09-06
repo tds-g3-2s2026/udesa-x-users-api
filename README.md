@@ -34,6 +34,9 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/logout` | Revoca el token de sesión activo |
 | `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
+| `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
+| `GET /me` | Devuelve el perfil de la cuenta autenticada |
+| `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
@@ -331,8 +334,10 @@ src/users_api/
 │   ├── auth.py             # registro, validación, login y cierre de sesión
 │   ├── admin_auth.py       # login del backoffice, con su propia política
 │   ├── password_reset.py   # recuperación de contraseña olvidada
+│   ├── password_change.py  # cambio de contraseña sabiendo la actual
+│   ├── profile.py          # lectura y edición del propio perfil
 │   ├── health.py           # verificación de dependencias
-│   ├── deps.py             # qué implementación recibe cada interfaz
+│   ├── deps.py             # qué implementación recibe cada interfaz, y la autenticación
 │   ├── errors.py           # traduce los errores al formato RFC 9457
 │   └── schemas/            # qué entra y qué sale de cada ruta
 ├── app/                    # el negocio, sin nombrar ninguna tecnología
