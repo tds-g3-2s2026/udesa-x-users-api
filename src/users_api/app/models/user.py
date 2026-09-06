@@ -33,6 +33,11 @@ class User:
     terms_accepted: bool = False
     terms_accepted_at: datetime | None = None
     created_at: datetime | None = None
+    # The name shown to other people and a short biography, both unset until
+    # the owner fills them in. The handle stays the identifier; these are
+    # only what gets displayed.
+    display_name: str | None = None
+    bio: str | None = None
 
     @property
     def can_log_in(self) -> bool:

@@ -11,7 +11,7 @@ can do live on the dataclasses under each feature's `domain.py`.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,6 +51,13 @@ class UserModel(Base):
     terms_accepted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), default=None
     )
+
+    # Unbounded on purpose: the length limit is a business rule enforced by the
+    # Pydantic schema before the value ever reaches this table, and repeating
+    # it here as a VARCHAR(n) would only give the number a second place to
+    # drift out of sync.
+    display_name: Mapped[str | None] = mapped_column(Text(), default=None)
+    bio: Mapped[str | None] = mapped_column(Text(), default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

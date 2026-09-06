@@ -34,6 +34,8 @@ def to_domain(row: UserModel) -> User:
         terms_accepted=row.terms_accepted,
         terms_accepted_at=row.terms_accepted_at,
         created_at=row.created_at,
+        display_name=row.display_name,
+        bio=row.bio,
     )
 
 
@@ -52,6 +54,8 @@ class SqlAlchemyUserRepository(UserRepository):
             deleted_at=user.deleted_at,
             terms_accepted=user.terms_accepted,
             terms_accepted_at=user.terms_accepted_at,
+            display_name=user.display_name,
+            bio=user.bio,
         )
         self.session.add(row)
         # Flushed and not committed: the caller needs the assigned id to hang
@@ -90,3 +94,5 @@ class SqlAlchemyUserRepository(UserRepository):
         row.is_email_verified = user.is_email_verified
         row.is_suspended = user.is_suspended
         row.deleted_at = user.deleted_at
+        row.display_name = user.display_name
+        row.bio = user.bio
