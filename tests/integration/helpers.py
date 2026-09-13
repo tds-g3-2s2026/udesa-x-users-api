@@ -93,6 +93,16 @@ class Api:
             "/me", headers={"Authorization": f"Bearer {token}"}, json=fields
         )
 
+    async def get_preferences(self, token: str):
+        return await self.client.get(
+            "/me/preferences", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    async def update_preferences(self, token: str, **fields):
+        return await self.client.patch(
+            "/me/preferences", headers={"Authorization": f"Bearer {token}"}, json=fields
+        )
+
 
 async def set_user_flag(app, column: str, value) -> None:
     async with app.state.engine.begin() as connection:

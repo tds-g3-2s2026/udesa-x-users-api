@@ -37,6 +37,8 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
+| `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
+| `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
 
 En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
 
@@ -81,8 +83,13 @@ compose; en producción es un job aparte del pipeline de despliegue.
 
 ```bash
 uv run alembic upgrade head          # aplicar
-uv run alembic revision --autogenerate -m "descripcion"   # crear una nueva
 ```
+
+**Una sola migración mientras no haya un deploy real** (`migrations/versions/0001_esquema_actual.py`).
+Sin una base con datos vivos no hay nada que una migración incremental esté protegiendo, así que
+un cambio de esquema se edita en ese mismo archivo en vez de sumar una `0002_...` nueva. El día
+que exista un primer deploy, esa migración pasa a ser la base fija y ahí sí arrancan las
+incrementales con `alembic revision --autogenerate`.
 
 ## Probar el flujo completo a mano
 
@@ -336,6 +343,7 @@ src/users_api/
 │   ├── password_reset.py   # recuperación de contraseña olvidada
 │   ├── password_change.py  # cambio de contraseña sabiendo la actual
 │   ├── profile.py          # lectura y edición del propio perfil
+│   ├── preferences.py      # visibilidad del perfil e idioma del feed
 │   ├── health.py           # verificación de dependencias
 │   ├── deps.py             # qué implementación recibe cada interfaz, y la autenticación
 │   ├── errors.py           # traduce los errores al formato RFC 9457
