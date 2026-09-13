@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.app.models.user import Role, User
+from users_api.app.models.user import FeedLanguage, ProfileVisibility, Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.infrastructure.database.models import UserModel
 
@@ -36,6 +36,8 @@ def to_domain(row: UserModel) -> User:
         created_at=row.created_at,
         display_name=row.display_name,
         bio=row.bio,
+        profile_visibility=ProfileVisibility(row.profile_visibility),
+        feed_language=FeedLanguage(row.feed_language),
     )
 
 
@@ -56,6 +58,8 @@ class SqlAlchemyUserRepository(UserRepository):
             terms_accepted_at=user.terms_accepted_at,
             display_name=user.display_name,
             bio=user.bio,
+            profile_visibility=user.profile_visibility.value,
+            feed_language=user.feed_language.value,
         )
         self.session.add(row)
         # Flushed and not committed: the caller needs the assigned id to hang
@@ -96,3 +100,5 @@ class SqlAlchemyUserRepository(UserRepository):
         row.deleted_at = user.deleted_at
         row.display_name = user.display_name
         row.bio = user.bio
+        row.profile_visibility = user.profile_visibility.value
+        row.feed_language = user.feed_language.value

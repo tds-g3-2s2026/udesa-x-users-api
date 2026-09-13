@@ -22,6 +22,10 @@ class UserModel(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("role IN ('user', 'moderator', 'superadmin')", name="ck_users_role"),
+        CheckConstraint(
+            "profile_visibility IN ('public', 'protected')", name="ck_users_profile_visibility"
+        ),
+        CheckConstraint("feed_language IN ('es', 'en', 'all')", name="ck_users_feed_language"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -58,6 +62,13 @@ class UserModel(Base):
     # drift out of sync.
     display_name: Mapped[str | None] = mapped_column(Text(), default=None)
     bio: Mapped[str | None] = mapped_column(Text(), default=None)
+
+    # Same shape as `role`: text plus a CHECK, not a native ENUM, so adding a
+    # value later is an ordinary migration and not an `ALTER TYPE`.
+    profile_visibility: Mapped[str] = mapped_column(
+        String(16), default="public", server_default="public"
+    )
+    feed_language: Mapped[str] = mapped_column(String(16), default="all", server_default="all")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

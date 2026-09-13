@@ -20,6 +20,25 @@ class Role(StrEnum):
     SUPERADMIN = "superadmin"
 
 
+class ProfileVisibility(StrEnum):
+    """Who can see a user's posts: everyone, or only approved followers."""
+
+    PUBLIC = "public"
+    PROTECTED = "protected"
+
+
+class FeedLanguage(StrEnum):
+    """What language the feed's content is shown in.
+
+    Filtering the feed by this is a later story; for now the value is only
+    stored and returned.
+    """
+
+    ES = "es"
+    EN = "en"
+    ALL = "all"
+
+
 @dataclass
 class User:
     email: str
@@ -38,6 +57,12 @@ class User:
     # only what gets displayed.
     display_name: str | None = None
     bio: str | None = None
+    # Assigned at registration and editable afterwards. Public and every
+    # language are the defaults: they open the account up rather than
+    # narrowing it, so a user who never visits the settings screen is not
+    # silently hidden or missing content.
+    profile_visibility: ProfileVisibility = ProfileVisibility.PUBLIC
+    feed_language: FeedLanguage = FeedLanguage.ALL
 
     @property
     def can_log_in(self) -> bool:
