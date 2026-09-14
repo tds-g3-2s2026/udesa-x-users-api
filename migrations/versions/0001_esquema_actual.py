@@ -45,6 +45,7 @@ def upgrade() -> None:
         # A temporary password is stored hashed like any other, so this flag
         # is the only thing that tells one apart.
         sa.Column("must_change_password", sa.Boolean(), nullable=False),
+        sa.Column("temporary_password_expires_at", sa.DateTime(timezone=True), nullable=True),
         # Text plus a CHECK and not a native ENUM: adding a value is then an
         # ordinary migration instead of an `ALTER TYPE` outside a transaction.
         sa.Column("role", sa.String(length=16), server_default="user", nullable=False),

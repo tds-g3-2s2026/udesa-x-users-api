@@ -5,12 +5,17 @@ panel with temporary passwords, and it belongs in this same class.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import generate_temporary_password, hash_password
+
+# How long a temporary password lasts. Not a setting: E5-H1 fixes it at a day,
+# and a credential that somebody dictated should not be stretchable from the
+# environment.
+TEMPORARY_PASSWORD_HOURS = 24
 
 
 @dataclass
@@ -75,6 +80,7 @@ class AdminService:
                 # The whole point: the owner did not choose this password and
                 # cannot keep it.
                 must_change_password=True,
+                temporary_password_expires_at=now + timedelta(hours=TEMPORARY_PASSWORD_HOURS),
                 # There is nobody to email a verification link to, the same
                 # reason the seeded superadmin is born verified.
                 is_email_verified=True,

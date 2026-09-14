@@ -1,6 +1,7 @@
-"""AdminService against a repository double."""
+"""AdminService and the rules around a temporary password."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,7 +10,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import verify_password
-from users_api.app.services.admins import AdminService
+from users_api.app.services.admins import TEMPORARY_PASSWORD_HOURS, AdminService
 
 PASSWORD = "Admin1234"
 
@@ -90,3 +91,42 @@ async def test_e5_h1_an_address_already_in_use_is_refused(users):
 
     assert raised.value.status == 409
     users.add.assert_not_awaited()
+
+
+async def test_e5_h1_the_temporary_password_is_given_a_day_to_be_used(users):
+    before = datetime.now(UTC)
+
+    created, _ = await AdminService(users=users).create_administrator(
+        email="nueva@udesa.edu.ar", handle="@nueva_admin", role=Role.MODERATOR
+    )
+
+    expected = before + timedelta(hours=TEMPORARY_PASSWORD_HOURS)
+    assert created.temporary_password_expires_at >= expected
+    assert created.temporary_password_expires_at < expected + timedelta(minutes=1)
+
+
+def test_e5_h1_the_temporary_password_stops_working_once_its_moment_passes():
+    expires_at = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
+    account = User(
+        email="nueva@udesa.edu.ar",
+        handle="@nueva_admin",
+        password_hash="x",
+        must_change_password=True,
+        temporary_password_expires_at=expires_at,
+    )
+
+    assert account.temporary_password_expired(expires_at - timedelta(seconds=1)) is False
+    # The deadline itself is already too late.
+    assert account.temporary_password_expired(expires_at) is True
+
+
+def test_e5_h1_a_password_its_owner_chose_never_expires():
+    account = User(
+        email="alumno@udesa.edu.ar",
+        handle="@alumno_01",
+        password_hash="x",
+        must_change_password=False,
+        temporary_password_expires_at=datetime(2020, 1, 1, tzinfo=UTC),
+    )
+
+    assert account.temporary_password_expired(datetime.now(UTC)) is False

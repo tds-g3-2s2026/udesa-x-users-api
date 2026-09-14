@@ -44,6 +44,9 @@ class UserModel(Base):
     # A temporary password is stored hashed like any other, so this flag is
     # the only thing that tells one apart.
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    temporary_password_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
 
     # Text plus a CHECK rather than a native ENUM: adding a value is then an
     # ordinary migration instead of an ALTER TYPE outside a transaction. The

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -88,3 +89,24 @@ async def test_e5_h1_ca1_temporary_password_forces_change_on_first_login(api):
     second = await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=chosen_password)
     assert second.json()["must_change_password"] is False
     assert (await api.get_profile(second.json()["access_token"])).status_code == 200
+
+
+async def test_e5_h1_ca3_temporary_password_expires_after_24_hours(api):
+    creator = await sign_in_as(api, "superadmin")
+    temporary_password = (await api.create_administrator(creator)).json()["temporary_password"]
+
+    # A day later, without anybody having used it.
+    await set_user_flag(
+        api.app, "temporary_password_expires_at", datetime.now(UTC) - timedelta(minutes=1)
+    )
+
+    expired = await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=temporary_password)
+    assert expired.status_code == 403
+    assert expired.json()["type"].endswith("temporary-password-expired")
+
+    # The app door does not let it through either, which would otherwise be a
+    # way to reach the change password endpoint with a dead credential.
+    through_the_app = await api.login(
+        identifier=NEW_ADMINISTRATOR["email"], password=temporary_password
+    )
+    assert through_the_app.status_code == 403
