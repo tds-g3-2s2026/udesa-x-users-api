@@ -7,9 +7,10 @@ panel with temporary passwords, and it belongs in this same class.
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
-from users_api.app.security import hash_password
+from users_api.app.security import generate_temporary_password, hash_password
 
 
 @dataclass
@@ -41,3 +42,44 @@ class AdminService:
                 terms_accepted_at=now,
             )
         )
+
+    async def create_administrator(
+        self, *, email: str, handle: str, role: Role
+    ) -> tuple[User, str]:
+        """Create an administrator account from the panel.
+
+        Returns the account together with its temporary password in clear.
+        That is the only moment the password exists outside its hash: there is
+        no mail service yet, so whoever created the account reads it once on
+        screen and passes it on. The stored copy is a hash like any other.
+        """
+        normalised_email = email.strip().lower()
+        normalised_handle = handle.strip().lower()
+
+        if await self.users.exists_with_email_or_handle(normalised_email, normalised_handle):
+            raise ProblemError(
+                status=409,
+                code="account-already-exists",
+                title="No se pudo crear la cuenta",
+                detail="El email o el nombre de usuario ya están en uso",
+            )
+
+        temporary_password = generate_temporary_password()
+        now = datetime.now(UTC)
+        user = await self.users.add(
+            User(
+                email=normalised_email,
+                handle=normalised_handle,
+                password_hash=hash_password(temporary_password),
+                role=role,
+                # The whole point: the owner did not choose this password and
+                # cannot keep it.
+                must_change_password=True,
+                # There is nobody to email a verification link to, the same
+                # reason the seeded superadmin is born verified.
+                is_email_verified=True,
+                terms_accepted=True,
+                terms_accepted_at=now,
+            )
+        )
+        return user, temporary_password

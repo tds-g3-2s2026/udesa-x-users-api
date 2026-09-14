@@ -47,6 +47,15 @@ def generate_emailed_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def generate_temporary_password() -> str:
+    """The password an administrator hands out, meant to be replaced at once.
+
+    Nobody has to remember it or type it twice, so it is random and long
+    instead of memorable. It is hashed like any other before being stored.
+    """
+    return secrets.token_urlsafe(12)
+
+
 def load_signing_key(pem: str | None) -> Ed25519PrivateKey:
     """Load the Ed25519 key, or mint an ephemeral one for local development.
 
