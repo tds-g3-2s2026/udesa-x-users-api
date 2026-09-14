@@ -31,6 +31,10 @@ class UserRepository(ABC):
     async def find_by_email(self, email: str) -> User | None: ...
 
     @abstractmethod
+    async def list_administrators(self) -> list[User]:
+        """Every administrator account, oldest first. Deleted ones excluded."""
+
+    @abstractmethod
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool: ...
 
     @abstractmethod

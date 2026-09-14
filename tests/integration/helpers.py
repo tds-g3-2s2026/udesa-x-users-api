@@ -56,6 +56,9 @@ class Api:
             headers={"Authorization": f"Bearer {token}"},
         )
 
+    async def list_administrators(self, token: str):
+        return await self.client.get("/admin/users", headers={"Authorization": f"Bearer {token}"})
+
     async def logout(self, token: str):
         return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
 

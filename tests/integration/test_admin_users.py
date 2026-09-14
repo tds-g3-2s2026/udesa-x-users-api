@@ -138,3 +138,31 @@ async def test_e5_h1_regenerating_is_refused_once_the_owner_chose_a_password(api
 
     assert refused.status_code == 409
     assert refused.json()["type"].endswith("password-already-chosen")
+
+
+async def test_e5_h1_the_listing_reports_the_state_of_each_temporary_credential(api):
+    creator = await sign_in_as(api, "superadmin")
+    await api.create_administrator(creator)
+    await api.create_administrator(creator, email="vencida@udesa.edu.ar", handle="@vencida_admin")
+
+    listed = await api.list_administrators(creator)
+
+    assert listed.status_code == 200
+    by_email = {row["email"]: row for row in listed.json()}
+    # The account that promoted itself never had a temporary password.
+    assert by_email["alumno@udesa.edu.ar"]["temporary_password_status"] is None
+    assert by_email[NEW_ADMINISTRATOR["email"]]["temporary_password_status"] == "pending"
+    assert by_email[NEW_ADMINISTRATOR["email"]]["temporary_password_expires_at"] is not None
+
+    # Once the deadline passes the panel is told to regenerate instead.
+    await set_user_flag(
+        api.app, "temporary_password_expires_at", datetime.now(UTC) - timedelta(minutes=1)
+    )
+    expired = {row["email"]: row for row in (await api.list_administrators(creator)).json()}
+    assert expired["vencida@udesa.edu.ar"]["temporary_password_status"] == "expired"
+
+
+async def test_e5_h1_the_listing_is_refused_to_a_moderator(api):
+    token = await sign_in_as(api, "moderator")
+
+    assert (await api.list_administrators(token)).status_code == 403

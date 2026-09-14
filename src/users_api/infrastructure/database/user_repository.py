@@ -87,6 +87,14 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self.session.scalar(select(UserModel).where(UserModel.email == email))
         return to_domain(row) if row is not None else None
 
+    async def list_administrators(self) -> list[User]:
+        rows = await self.session.scalars(
+            select(UserModel)
+            .where(UserModel.role != Role.USER.value, UserModel.deleted_at.is_(None))
+            .order_by(UserModel.created_at)
+        )
+        return [to_domain(row) for row in rows]
+
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool:
         taken = await self.session.scalar(
             select(UserModel.id).where(or_(UserModel.email == email, UserModel.handle == handle))

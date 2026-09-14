@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -30,3 +31,15 @@ class AdministratorCredentialResponse(BaseModel):
     # The only time this travels in clear. Whoever created the account has to
     # pass it on now, because the service keeps no copy it could show again.
     temporary_password: str
+
+
+class AdministratorResponse(BaseModel):
+    id: str
+    email: EmailStr
+    handle: str
+    role: str
+    # None once the owner chose their own password. While it is set, the panel
+    # knows whether the credential is still usable or has to be regenerated,
+    # without having to reimplement the deadline itself.
+    temporary_password_status: Literal["pending", "expired"] | None
+    temporary_password_expires_at: datetime | None

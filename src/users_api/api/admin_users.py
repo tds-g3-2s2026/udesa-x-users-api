@@ -5,6 +5,7 @@ does once inside. Every route here is refused to a moderator.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Depends, status
 from users_api.api.deps import SuperadminDep, UserRepositoryDep
 from users_api.api.schemas.admin_users import (
     AdministratorCredentialResponse,
+    AdministratorResponse,
     CreateAdministratorRequest,
 )
 from users_api.app.models.user import Role, User
@@ -59,6 +61,30 @@ async def reset_temporary_password(
     """
     user, temporary_password = await service.reset_temporary_password(user_id)
     return credential(user, temporary_password)
+
+
+@router.get("")
+async def list_administrators(_: SuperadminDep, service: ServiceDep) -> list[AdministratorResponse]:
+    """Every administrator, with the state of its temporary credential."""
+    now = datetime.now(UTC)
+    return [
+        AdministratorResponse(
+            id=str(user.id),
+            email=user.email,
+            handle=user.handle,
+            role=user.role.value,
+            temporary_password_status=temporary_password_status(user, now),
+            temporary_password_expires_at=user.temporary_password_expires_at,
+        )
+        for user in await service.list_administrators()
+    ]
+
+
+def temporary_password_status(user: User, now: datetime) -> str | None:
+    """What the panel shows next to the account, in one word."""
+    if not user.must_change_password:
+        return None
+    return "expired" if user.temporary_password_expired(now) else "pending"
 
 
 def credential(user: User, temporary_password: str) -> AdministratorCredentialResponse:

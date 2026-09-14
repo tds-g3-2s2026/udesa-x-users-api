@@ -122,3 +122,6 @@ class AdminService:
         )
         await self.users.update(user)
         return user, temporary_password
+
+    async def list_administrators(self) -> list[User]:
+        return await self.users.list_administrators()
