@@ -50,6 +50,12 @@ class Api:
             json={**NEW_ADMINISTRATOR, **overrides},
         )
 
+    async def reset_temporary_password(self, token: str, user_id: str):
+        return await self.client.post(
+            f"/admin/users/{user_id}/reset-temporary-password",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
     async def logout(self, token: str):
         return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
 

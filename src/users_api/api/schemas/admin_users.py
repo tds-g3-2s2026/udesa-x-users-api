@@ -20,7 +20,9 @@ class CreateAdministratorRequest(BaseModel):
         return enforce_handle_format(value)
 
 
-class CreatedAdministratorResponse(BaseModel):
+class AdministratorCredentialResponse(BaseModel):
+    """An administrator account together with the password it was handed."""
+
     id: str
     email: EmailStr
     handle: str

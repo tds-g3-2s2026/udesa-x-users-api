@@ -4,6 +4,7 @@ E5-H2 only needs the first superadmin to exist. E5-H1 adds creation from the
 panel with temporary passwords, and it belongs in this same class.
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -88,4 +89,36 @@ class AdminService:
                 terms_accepted_at=now,
             )
         )
+        return user, temporary_password
+
+    async def reset_temporary_password(self, user_id: uuid.UUID) -> tuple[User, str]:
+        """Hand out a new temporary password for an account still owing one.
+
+        The usual reason is that the first one expired unused. An account
+        whose owner already chose a password is refused: replacing it would be
+        taking the account away from them, which is not what this is for.
+        """
+        user = await self.users.get(user_id)
+        if user is None:
+            raise ProblemError(
+                status=404,
+                code="account-not-found",
+                title="No se pudo regenerar la contraseña",
+                detail="La cuenta no existe",
+            )
+
+        if not user.must_change_password:
+            raise ProblemError(
+                status=409,
+                code="password-already-chosen",
+                title="No se pudo regenerar la contraseña",
+                detail="La cuenta ya eligió su propia contraseña",
+            )
+
+        temporary_password = generate_temporary_password()
+        user.password_hash = hash_password(temporary_password)
+        user.temporary_password_expires_at = datetime.now(UTC) + timedelta(
+            hours=TEMPORARY_PASSWORD_HOURS
+        )
+        await self.users.update(user)
         return user, temporary_password

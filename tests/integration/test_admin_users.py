@@ -93,7 +93,8 @@ async def test_e5_h1_ca1_temporary_password_forces_change_on_first_login(api):
 
 async def test_e5_h1_ca3_temporary_password_expires_after_24_hours(api):
     creator = await sign_in_as(api, "superadmin")
-    temporary_password = (await api.create_administrator(creator)).json()["temporary_password"]
+    created = (await api.create_administrator(creator)).json()
+    temporary_password = created["temporary_password"]
 
     # A day later, without anybody having used it.
     await set_user_flag(
@@ -110,3 +111,30 @@ async def test_e5_h1_ca3_temporary_password_expires_after_24_hours(api):
         identifier=NEW_ADMINISTRATOR["email"], password=temporary_password
     )
     assert through_the_app.status_code == 403
+
+    # The superadmin hands out another one, and the account is reachable again.
+    regenerated = await api.reset_temporary_password(creator, created["id"])
+    assert regenerated.status_code == 200
+    new_password = regenerated.json()["temporary_password"]
+    assert new_password != temporary_password
+
+    revived = await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=new_password)
+    assert revived.status_code == 200
+    # Still owed: a regenerated password is temporary too.
+    assert revived.json()["must_change_password"] is True
+
+
+async def test_e5_h1_regenerating_is_refused_once_the_owner_chose_a_password(api):
+    creator = await sign_in_as(api, "superadmin")
+    created = (await api.create_administrator(creator)).json()
+    token = (
+        await api.admin_login(
+            email=NEW_ADMINISTRATOR["email"], password=created["temporary_password"]
+        )
+    ).json()["access_token"]
+    await api.change_password(token, current=created["temporary_password"], new="Elegida2026")
+
+    refused = await api.reset_temporary_password(creator, created["id"])
+
+    assert refused.status_code == 409
+    assert refused.json()["type"].endswith("password-already-chosen")
