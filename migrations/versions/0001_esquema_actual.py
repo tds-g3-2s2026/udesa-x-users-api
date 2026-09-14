@@ -42,6 +42,9 @@ def upgrade() -> None:
         sa.Column("handle", sa.String(length=16), nullable=False),
         # Only the argon2id digest is stored, never the password.
         sa.Column("password_hash", sa.String(length=255), nullable=False),
+        # A temporary password is stored hashed like any other, so this flag
+        # is the only thing that tells one apart.
+        sa.Column("must_change_password", sa.Boolean(), nullable=False),
         # Text plus a CHECK and not a native ENUM: adding a value is then an
         # ordinary migration instead of an `ALTER TYPE` outside a transaction.
         sa.Column("role", sa.String(length=16), server_default="user", nullable=False),

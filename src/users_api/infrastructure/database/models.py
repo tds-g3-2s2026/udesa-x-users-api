@@ -41,6 +41,10 @@ class UserModel(Base):
     # Only the argon2id digest is stored, never the password.
     password_hash: Mapped[str] = mapped_column(String(255))
 
+    # A temporary password is stored hashed like any other, so this flag is
+    # the only thing that tells one apart.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Text plus a CHECK rather than a native ENUM: adding a value is then an
     # ordinary migration instead of an ALTER TYPE outside a transaction. The
     # allowed values are the `Role` enum in `app/models/user.py`.

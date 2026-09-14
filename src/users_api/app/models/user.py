@@ -46,6 +46,10 @@ class User:
     password_hash: str
     id: uuid.UUID | None = None
     role: Role = Role.USER
+    # Raised when the password was not chosen by the owner: an administrator
+    # created the account with a temporary one. It stays raised until the
+    # owner replaces it.
+    must_change_password: bool = False
     is_email_verified: bool = False
     is_suspended: bool = False
     deleted_at: datetime | None = None
