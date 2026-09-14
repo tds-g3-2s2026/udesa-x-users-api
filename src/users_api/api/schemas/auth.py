@@ -106,3 +106,6 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    # Only the backoffice sets this. An account whose password was handed to
+    # it by somebody else can do nothing until it picks its own.
+    must_change_password: bool = False

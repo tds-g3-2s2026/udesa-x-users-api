@@ -102,8 +102,14 @@ ResetTokenRepositoryDep = Annotated[
 bearer_scheme = HTTPBearer()
 BearerDep = Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)]
 
+# What a session with a password change pending is still allowed to do. The
+# first is the whole point of the session; the second is so that a session can
+# always be closed.
+PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE = ("/me/change-password", "/auth/logout")
+
 
 async def get_current_user(
+    request: Request,
     credentials: BearerDep,
     users: UserRepositoryDep,
     sessions: SessionStoreDep,
@@ -154,6 +160,20 @@ async def get_current_user(
             title="No se pudo autenticar la solicitud",
             detail="Cuenta suspendida",
         )
+
+    if (
+        user.must_change_password
+        and request.url.path not in PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE
+    ):
+        # Without this the obligation would live only in the panel, and a
+        # temporary password would be a working credential for everything.
+        raise ProblemError(
+            status=403,
+            code="password-change-required",
+            title="Tenés que cambiar tu contraseña",
+            detail="La contraseña temporal solo sirve para elegir una nueva",
+        )
+
     return user
 
 

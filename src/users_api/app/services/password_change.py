@@ -85,6 +85,9 @@ class PasswordChangeService:
             )
 
         user.password_hash = hash_password(new_password)
+        # Whatever brought the account here, from this point on the password
+        # is one the owner chose.
+        user.must_change_password = False
         await self.users.update(user)
         await self.rate_limiter.reset(policy.key(identifier))
 

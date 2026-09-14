@@ -197,11 +197,15 @@ class AuthService:
         await self.rate_limiter.reset(policy.key(identifier))
         return self.issue_session(user)
 
-    async def admin_login(self, *, email: str, password: str) -> tuple[str, int]:
+    async def admin_login(self, *, email: str, password: str) -> tuple[str, int, bool]:
         """The backoffice door: same credentials, stricter policy, role required.
 
         Administrators are created by a superadmin or seeded, never
         self-registered, so there is no email verification to check here.
+
+        The third value says whether the panel has to send the administrator
+        straight to the password screen. The session is handed out either way:
+        it is the only way to reach the endpoint that changes the password.
         """
         policy = self.admin_login_policy
         await self.guard_lockout(email, policy)
@@ -237,7 +241,8 @@ class AuthService:
             )
 
         await self.rate_limiter.reset(policy.key(email))
-        return self.issue_session(user)
+        token, expires_in = self.issue_session(user)
+        return token, expires_in, user.must_change_password
 
     def issue_session(self, user: User) -> tuple[str, int]:
         token = issue_access_token(

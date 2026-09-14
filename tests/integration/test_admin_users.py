@@ -1,5 +1,6 @@
 """E5-H1: creating administrators from the panel."""
 
+import asyncio
 import os
 
 import pytest
@@ -54,5 +55,36 @@ async def test_e5_h1_an_address_already_taken_is_refused(api):
     await api.create_administrator(token)
 
     repeated = await api.create_administrator(token, handle="@otra_admin")
-
     assert repeated.status_code == 409
+
+
+async def test_e5_h1_ca1_temporary_password_forces_change_on_first_login(api):
+    creator = await sign_in_as(api, "superadmin")
+    temporary_password = (await api.create_administrator(creator)).json()["temporary_password"]
+    chosen_password = "Elegida2026"
+
+    first = await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=temporary_password)
+    assert first.status_code == 200
+    assert first.json()["must_change_password"] is True
+
+    # The session exists, and it only opens one door.
+    token = first.json()["access_token"]
+    blocked = await api.get_profile(token)
+    assert blocked.status_code == 403
+    assert blocked.json()["type"].endswith("password-change-required")
+
+    changed = await api.change_password(token, current=temporary_password, new=chosen_password)
+    assert changed.status_code == 200
+
+    # Changing the password revokes every session with a cutoff truncated to
+    # the second (deps.py), so a token minted inside that same second would be
+    # born revoked. Somebody retyping their credentials always takes longer.
+    await asyncio.sleep(1)
+
+    # The obligation is gone, and so is the temporary password.
+    assert (
+        await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=temporary_password)
+    ).status_code == 401
+    second = await api.admin_login(email=NEW_ADMINISTRATOR["email"], password=chosen_password)
+    assert second.json()["must_change_password"] is False
+    assert (await api.get_profile(second.json()["access_token"])).status_code == 200
