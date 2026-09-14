@@ -86,8 +86,11 @@ class PasswordChangeService:
 
         user.password_hash = hash_password(new_password)
         # Whatever brought the account here, from this point on the password
-        # is one the owner chose.
+        # is one the owner chose. The deadline goes with it: leaving the date
+        # behind would have the panel show an expiry for a password that is
+        # no longer temporary.
         user.must_change_password = False
+        user.temporary_password_expires_at = None
         await self.users.update(user)
         await self.rate_limiter.reset(policy.key(identifier))
 

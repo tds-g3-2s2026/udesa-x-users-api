@@ -139,6 +139,10 @@ async def test_e5_h1_regenerating_is_refused_once_the_owner_chose_a_password(api
     assert refused.status_code == 409
     assert refused.json()["type"].endswith("password-already-chosen")
 
+    # And the deadline of the password it replaced is gone with it.
+    listed = {row["email"]: row for row in (await api.list_administrators(creator)).json()}
+    assert listed[NEW_ADMINISTRATOR["email"]]["temporary_password_expires_at"] is None
+
 
 async def test_e5_h1_the_listing_reports_the_state_of_each_temporary_credential(api):
     creator = await sign_in_as(api, "superadmin")
@@ -151,6 +155,7 @@ async def test_e5_h1_the_listing_reports_the_state_of_each_temporary_credential(
     by_email = {row["email"]: row for row in listed.json()}
     # The account that promoted itself never had a temporary password.
     assert by_email["alumno@udesa.edu.ar"]["temporary_password_status"] is None
+    assert by_email["alumno@udesa.edu.ar"]["temporary_password_expires_at"] is None
     assert by_email[NEW_ADMINISTRATOR["email"]]["temporary_password_status"] == "pending"
     assert by_email[NEW_ADMINISTRATOR["email"]]["temporary_password_expires_at"] is not None
 
