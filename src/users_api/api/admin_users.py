@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from users_api.api.deps import SuperadminDep, UserRepositoryDep
+from users_api.api.deps import SettingsDep, SuperadminDep, UserRepositoryDep
 from users_api.api.schemas.admin_users import (
     AdministratorCredentialResponse,
     AdministratorResponse,
@@ -22,8 +22,8 @@ from users_api.app.services.admins import AdminService
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 
-async def get_admin_service(users: UserRepositoryDep) -> AdminService:
-    return AdminService(users=users)
+async def get_admin_service(users: UserRepositoryDep, settings: SettingsDep) -> AdminService:
+    return AdminService(users=users, settings=settings)
 
 
 ServiceDep = Annotated[AdminService, Depends(get_admin_service)]

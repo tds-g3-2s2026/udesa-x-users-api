@@ -12,6 +12,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import generate_temporary_password, hash_password
+from users_api.config.settings import Settings
 
 # How long a temporary password lasts. Not a setting: E5-H1 fixes it at a day,
 # and a credential that somebody dictated should not be stretchable from the
@@ -22,6 +23,7 @@ TEMPORARY_PASSWORD_HOURS = 24
 @dataclass
 class AdminService:
     users: UserRepository
+    settings: Settings
 
     async def ensure_superadmin(self, *, email: str, handle: str, password: str) -> User | None:
         """Create the first superadmin, or do nothing if the address is taken.
@@ -62,6 +64,8 @@ class AdminService:
         normalised_email = email.strip().lower()
         normalised_handle = handle.strip().lower()
 
+        self.deny_email_outside_the_authorized_domain(normalised_email)
+
         if await self.users.exists_with_email_or_handle(normalised_email, normalised_handle):
             raise ProblemError(
                 status=409,
@@ -90,6 +94,21 @@ class AdminService:
             )
         )
         return user, temporary_password
+
+    def deny_email_outside_the_authorized_domain(self, email: str) -> None:
+        """Keep administrator accounts inside the institution, when asked to.
+
+        With no domain configured there is no restriction, which is what makes
+        this rule optional rather than something to switch off.
+        """
+        domain = self.settings.administrator_email_domain.strip().lower().lstrip("@")
+        if domain and not email.endswith(f"@{domain}"):
+            raise ProblemError(
+                status=400,
+                code="email-domain-not-allowed",
+                title="No se pudo crear la cuenta",
+                detail=f"El correo de un administrador tiene que ser del dominio @{domain}",
+            )
 
     async def reset_temporary_password(self, user_id: uuid.UUID) -> tuple[User, str]:
         """Hand out a new temporary password for an account still owing one.

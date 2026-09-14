@@ -166,3 +166,15 @@ async def test_e5_h1_the_listing_is_refused_to_a_moderator(api):
     token = await sign_in_as(api, "moderator")
 
     assert (await api.list_administrators(token)).status_code == 403
+
+
+async def test_e5_h1_ca4_rejects_email_outside_the_configured_domain(api, monkeypatch):
+    creator = await sign_in_as(api, "superadmin")
+    monkeypatch.setattr(api.app.state.settings, "administrator_email_domain", "udesa.edu.ar")
+
+    refused = await api.create_administrator(creator, email="externo@gmail.com")
+
+    assert refused.status_code == 400
+    assert refused.json()["type"].endswith("email-domain-not-allowed")
+    # The rule is about the domain and nothing else.
+    assert (await api.create_administrator(creator)).status_code == 201

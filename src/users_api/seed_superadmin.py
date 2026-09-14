@@ -53,7 +53,9 @@ async def run(settings: Settings) -> bool:
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     try:
         async for session in session_scope(build_session_factory(engine)):
-            service = AdminService(users=SqlAlchemyUserRepository(session=session))
+            service = AdminService(
+                users=SqlAlchemyUserRepository(session=session), settings=settings
+            )
             created = await service.ensure_superadmin(email=email, handle=handle, password=password)
     finally:
         await engine.dispose()

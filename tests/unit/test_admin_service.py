@@ -11,8 +11,17 @@ from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import verify_password
 from users_api.app.services.admins import TEMPORARY_PASSWORD_HOURS, AdminService
+from users_api.config.settings import Settings
 
 PASSWORD = "Admin1234"
+
+
+def build_settings(**overrides) -> Settings:
+    return Settings(
+        database_url="postgresql+asyncpg://unused",
+        redis_url="redis://unused",
+        **overrides,
+    )
 
 
 @pytest.fixture
@@ -24,8 +33,13 @@ def users():
     return repository
 
 
-async def test_e5_h2_the_seeded_superadmin_is_verified_and_carries_the_role(users):
-    created = await AdminService(users=users).ensure_superadmin(
+@pytest.fixture
+def service(users):
+    return AdminService(users=users, settings=build_settings())
+
+
+async def test_e5_h2_the_seeded_superadmin_is_verified_and_carries_the_role(service):
+    created = await service.ensure_superadmin(
         email="Admin@udesa.edu.ar", handle="@SuperAdmin", password=PASSWORD
     )
 
@@ -38,12 +52,12 @@ async def test_e5_h2_the_seeded_superadmin_is_verified_and_carries_the_role(user
     assert verify_password(PASSWORD, created.password_hash)
 
 
-async def test_e5_h2_the_seed_leaves_an_existing_account_alone(users):
+async def test_e5_h2_the_seed_leaves_an_existing_account_alone(users, service):
     users.find_by_email.return_value = User(
         id=uuid.uuid4(), email="admin@udesa.edu.ar", handle="@alumno", password_hash="x"
     )
 
-    created = await AdminService(users=users).ensure_superadmin(
+    created = await service.ensure_superadmin(
         email="admin@udesa.edu.ar", handle="@superadmin", password=PASSWORD
     )
 
@@ -52,8 +66,8 @@ async def test_e5_h2_the_seed_leaves_an_existing_account_alone(users):
     users.update.assert_not_awaited()
 
 
-async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(users):
-    created, temporary_password = await AdminService(users=users).create_administrator(
+async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(service):
+    created, temporary_password = await service.create_administrator(
         email="Nueva@udesa.edu.ar", handle="@Moderadora", role=Role.MODERATOR
     )
 
@@ -68,8 +82,7 @@ async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(users
     assert temporary_password not in created.password_hash
 
 
-async def test_e5_h1_each_administrator_gets_a_different_temporary_password(users):
-    service = AdminService(users=users)
+async def test_e5_h1_each_administrator_gets_a_different_temporary_password(service):
 
     _, first = await service.create_administrator(
         email="una@udesa.edu.ar", handle="@una_admin", role=Role.MODERATOR
@@ -81,11 +94,11 @@ async def test_e5_h1_each_administrator_gets_a_different_temporary_password(user
     assert first != second
 
 
-async def test_e5_h1_an_address_already_in_use_is_refused(users):
+async def test_e5_h1_an_address_already_in_use_is_refused(users, service):
     users.exists_with_email_or_handle.return_value = True
 
     with pytest.raises(ProblemError) as raised:
-        await AdminService(users=users).create_administrator(
+        await service.create_administrator(
             email="admin@udesa.edu.ar", handle="@otro_admin", role=Role.SUPERADMIN
         )
 
@@ -93,10 +106,10 @@ async def test_e5_h1_an_address_already_in_use_is_refused(users):
     users.add.assert_not_awaited()
 
 
-async def test_e5_h1_the_temporary_password_is_given_a_day_to_be_used(users):
+async def test_e5_h1_the_temporary_password_is_given_a_day_to_be_used(service):
     before = datetime.now(UTC)
 
-    created, _ = await AdminService(users=users).create_administrator(
+    created, _ = await service.create_administrator(
         email="nueva@udesa.edu.ar", handle="@nueva_admin", role=Role.MODERATOR
     )
 
@@ -130,3 +143,25 @@ def test_e5_h1_a_password_its_owner_chose_never_expires():
     )
 
     assert account.temporary_password_expired(datetime.now(UTC)) is False
+
+
+async def test_e5_h1_ca4_an_address_outside_the_configured_domain_is_refused(users):
+    service = AdminService(
+        users=users, settings=build_settings(administrator_email_domain="udesa.edu.ar")
+    )
+
+    with pytest.raises(ProblemError) as raised:
+        await service.create_administrator(
+            email="externo@gmail.com", handle="@externo_01", role=Role.MODERATOR
+        )
+
+    assert raised.value.status == 400
+    users.add.assert_not_awaited()
+
+
+async def test_e5_h1_ca4_without_a_configured_domain_any_address_goes(service):
+    created, _ = await service.create_administrator(
+        email="externo@gmail.com", handle="@externo_01", role=Role.MODERATOR
+    )
+
+    assert created.email == "externo@gmail.com"
