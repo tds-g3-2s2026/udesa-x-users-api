@@ -15,6 +15,12 @@ REGISTRATION = {
     "terms_accepted": True,
 }
 
+NEW_ADMINISTRATOR = {
+    "email": "moderadora@udesa.edu.ar",
+    "handle": "@moderadora",
+    "role": "moderator",
+}
+
 
 class Api:
     """Drives the app and reads back the emailed links from the log."""
@@ -35,6 +41,13 @@ class Api:
     async def admin_login(self, email=REGISTRATION["email"], password=REGISTRATION["password"]):
         return await self.client.post(
             "/admin/auth/login", json={"email": email, "password": password}
+        )
+
+    async def create_administrator(self, token: str, **overrides):
+        return await self.client.post(
+            "/admin/users",
+            headers={"Authorization": f"Bearer {token}"},
+            json={**NEW_ADMINISTRATOR, **overrides},
         )
 
     async def logout(self, token: str):

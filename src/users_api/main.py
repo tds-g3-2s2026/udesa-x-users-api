@@ -8,6 +8,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from users_api.api.admin_auth import router as admin_auth_router
+from users_api.api.admin_users import router as admin_users_router
 from users_api.api.auth import router as auth_router
 from users_api.api.errors import (
     problem_error_handler,
@@ -72,6 +73,7 @@ app.add_exception_handler(RequestValidationError, validation_error_handler)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_auth_router)
+app.include_router(admin_users_router)
 app.include_router(password_reset_router)
 app.include_router(password_change_router)
 app.include_router(profile_router)

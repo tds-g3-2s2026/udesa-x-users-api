@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
-from users_api.app.models.user import User
+from users_api.app.models.user import Role, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -158,3 +158,22 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+async def require_superadmin(user: CurrentUserDep) -> User:
+    """The account behind the token, refused unless it is a superadmin.
+
+    403 and not 401: a moderator holds a perfectly valid session, what it
+    lacks is the permission.
+    """
+    if user.role is not Role.SUPERADMIN:
+        raise ProblemError(
+            status=403,
+            code="superadmin-required",
+            title="No se pudo completar la acción",
+            detail="Solo un superadministrador puede gestionar administradores",
+        )
+    return user
+
+
+SuperadminDep = Annotated[User, Depends(require_superadmin)]

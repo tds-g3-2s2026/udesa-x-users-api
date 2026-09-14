@@ -38,6 +38,20 @@ def enforce_confirmation_matches(value: str, info: ValidationInfo) -> str:
     return value
 
 
+def enforce_handle_format(value: str) -> str:
+    """The handle rule, in one place.
+
+    Registration and the administrator panel both create accounts, and the
+    handle has to look the same whichever door it came through.
+    """
+    if not HANDLE_PATTERN.match(value):
+        raise ValueError(
+            "El handle debe empezar con @ y tener entre 4 y 15 caracteres, "
+            "usando solo letras, números y guiones bajos"
+        )
+    return value.lower()
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     handle: str = Field(min_length=5, max_length=16)
@@ -47,12 +61,7 @@ class RegisterRequest(BaseModel):
     @field_validator("handle")
     @classmethod
     def handle_must_match_format(cls, value: str) -> str:
-        if not HANDLE_PATTERN.match(value):
-            raise ValueError(
-                "El handle debe empezar con @ y tener entre 4 y 15 caracteres, "
-                "usando solo letras, números y guiones bajos"
-            )
-        return value.lower()
+        return enforce_handle_format(value)
 
     @field_validator("password")
     @classmethod
