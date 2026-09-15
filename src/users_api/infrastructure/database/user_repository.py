@@ -28,6 +28,8 @@ def to_domain(row: UserModel) -> User:
         handle=row.handle,
         password_hash=row.password_hash,
         role=Role(row.role),
+        must_change_password=row.must_change_password,
+        temporary_password_expires_at=row.temporary_password_expires_at,
         is_email_verified=row.is_email_verified,
         is_suspended=row.is_suspended,
         deleted_at=row.deleted_at,
@@ -51,6 +53,8 @@ class SqlAlchemyUserRepository(UserRepository):
             handle=user.handle,
             password_hash=user.password_hash,
             role=user.role.value,
+            must_change_password=user.must_change_password,
+            temporary_password_expires_at=user.temporary_password_expires_at,
             is_email_verified=user.is_email_verified,
             is_suspended=user.is_suspended,
             deleted_at=user.deleted_at,
@@ -83,6 +87,14 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self.session.scalar(select(UserModel).where(UserModel.email == email))
         return to_domain(row) if row is not None else None
 
+    async def list_administrators(self) -> list[User]:
+        rows = await self.session.scalars(
+            select(UserModel)
+            .where(UserModel.role != Role.USER.value, UserModel.deleted_at.is_(None))
+            .order_by(UserModel.created_at)
+        )
+        return [to_domain(row) for row in rows]
+
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool:
         taken = await self.session.scalar(
             select(UserModel.id).where(or_(UserModel.email == email, UserModel.handle == handle))
@@ -95,6 +107,8 @@ class SqlAlchemyUserRepository(UserRepository):
             return
         row.password_hash = user.password_hash
         row.role = user.role.value
+        row.must_change_password = user.must_change_password
+        row.temporary_password_expires_at = user.temporary_password_expires_at
         row.is_email_verified = user.is_email_verified
         row.is_suspended = user.is_suspended
         row.deleted_at = user.deleted_at

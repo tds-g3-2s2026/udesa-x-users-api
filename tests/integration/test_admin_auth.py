@@ -29,8 +29,8 @@ def seed_settings(**overrides) -> Settings:
 async def promote(api: Api, role: str) -> None:
     """A verified app user, promoted straight in the database.
 
-    Creating administrators through the API is E5-H1; until then the role is
-    set by hand, which is also what the seed does underneath.
+    The role is set by hand and not through `POST /admin/users`, so these
+    tests keep exercising only the door and not the creation of the account.
     """
     await api.register_and_verify()
     await set_user_flag(api.app, "role", role)

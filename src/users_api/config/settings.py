@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # `users.handle` is NOT NULL and unique, so the seeded account needs one.
     superadmin_handle: str = "@superadmin"
 
+    # Domain an administrator's address has to belong to, without the @.
+    # Empty means no restriction, which is what makes the rule optional: a
+    # deployment that does not care leaves it unset.
+    administrator_email_domain: str = ""
+
     # Browser origins allowed to call the API. Empty means no browser at all:
     # mobile is not subject to CORS, only the backoffice is. Set as a JSON list.
     cors_allowed_origins: list[str] = []

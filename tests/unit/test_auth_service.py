@@ -287,7 +287,7 @@ async def test_e5_h2_ca1_the_admin_login_clears_its_counter_and_signs_the_role(
     user = build_user(email="admin@udesa.edu.ar", role=Role.SUPERADMIN)
     doubles["users"].find_by_email.return_value = user
 
-    token, expires_in = await service.admin_login(email="Admin@udesa.edu.ar", password=PASSWORD)
+    token, expires_in, _ = await service.admin_login(email="Admin@udesa.edu.ar", password=PASSWORD)
 
     # Looked up by the normalised email only: the backoffice has no handle login.
     doubles["users"].find_by_email.assert_awaited_once_with("admin@udesa.edu.ar")
@@ -320,7 +320,7 @@ async def test_e5_h2_ca2_an_unverified_administrator_is_not_asked_for_the_mailbo
         role=Role.MODERATOR, is_email_verified=False
     )
 
-    token, _ = await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
+    token, _, _ = await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
     assert token
 
 

@@ -31,6 +31,9 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token. El claim `role` lleva el rol real de la cuenta |
 | `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
+| `POST /admin/users` | Crea un administrador con una contraseña temporal. Solo `superadmin`. La temporal viaja en claro en la respuesta, una única vez |
+| `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
+| `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `POST /auth/logout` | Revoca el token de sesión activo |
 | `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
@@ -61,6 +64,7 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | sin definir | Credenciales del primer superadmin, que siembra el comando de abajo |
 | `SUPERADMIN_HANDLE` | `@superadmin` | Handle de esa cuenta: la columna es obligatoria y única |
 | `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
+| `ADMINISTRATOR_EMAIL_DOMAIN` | sin definir | Dominio al que tiene que pertenecer el correo de un administrador nuevo. Vacío significa sin restricción |
 
 ## Primer superadmin
 
@@ -265,6 +269,26 @@ El usuario del paso 1 tiene la contraseña correcta pero no el rol, así que rec
 `type` terminado en `/not-an-administrator` (`E5-H2 CA.2`). Tres contraseñas equivocadas seguidas
 bloquean esta puerta por 30 minutos con `429` y `Retry-After: 1800` (`E5-H2 CA.3`); el login de
 la app del mismo usuario no se entera, porque cada puerta lleva su contador.
+
+### 9. Crear un administrador desde el panel
+
+Con el token del paso anterior, el superadmin da de alta a una moderadora. La respuesta trae la
+contraseña temporal, y es la única vez que se puede leer:
+
+```powershell
+curl.exe -X POST http://localhost:8000/admin/users -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{\"email\":\"moderadora@udesa.edu.ar\",\"handle\":\"@moderadora\",\"role\":\"moderator\"}'
+```
+
+Esa cuenta entra al backoffice con la temporal y el login le contesta `must_change_password: true`.
+Mientras esa bandera esté prendida su sesión solo sirve para `POST /me/change-password` y para
+cerrarse: cualquier otra ruta devuelve `403` con `type` terminado en `/password-change-required`
+(`E5-H1 CA.1`). Un moderador que intente crear administradores recibe `403` con
+`/superadmin-required` (`E5-H1 CA.2`).
+
+Pasadas 24 horas sin usarla, la temporal deja de servir y el superadmin genera otra con
+`POST /admin/users/{id}/reset-temporary-password` (`E5-H1 CA.3`). Con
+`ADMINISTRATOR_EMAIL_DOMAIN=udesa.edu.ar` en el compose, un alta con una dirección de otro
+dominio se rechaza con `400` y `/email-domain-not-allowed` (`E5-H1 CA.4`).
 
 Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
 

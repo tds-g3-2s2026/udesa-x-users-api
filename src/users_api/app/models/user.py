@@ -46,6 +46,13 @@ class User:
     password_hash: str
     id: uuid.UUID | None = None
     role: Role = Role.USER
+    # Raised when the password was not chosen by the owner: an administrator
+    # created the account with a temporary one. It stays raised until the
+    # owner replaces it.
+    must_change_password: bool = False
+    # When the temporary password stops working. Only set while the flag
+    # above is up.
+    temporary_password_expires_at: datetime | None = None
     is_email_verified: bool = False
     is_suspended: bool = False
     deleted_at: datetime | None = None
@@ -73,3 +80,15 @@ class User:
     def is_administrator(self) -> bool:
         """Moderators and superadmins get into the backoffice; users do not."""
         return self.role is not Role.USER
+
+    def temporary_password_expired(self, now: datetime) -> bool:
+        """A temporary password nobody used in time is no longer a credential.
+
+        A password somebody else chose and dictated is a risk that grows while
+        it sits unused, so it stops working on its own.
+        """
+        return (
+            self.must_change_password
+            and self.temporary_password_expires_at is not None
+            and self.temporary_password_expires_at <= now
+        )

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
-from users_api.app.models.user import User
+from users_api.app.models.user import Role, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -102,8 +102,14 @@ ResetTokenRepositoryDep = Annotated[
 bearer_scheme = HTTPBearer()
 BearerDep = Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)]
 
+# What a session with a password change pending is still allowed to do. The
+# first is the whole point of the session; the second is so that a session can
+# always be closed.
+PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE = ("/me/change-password", "/auth/logout")
+
 
 async def get_current_user(
+    request: Request,
     credentials: BearerDep,
     users: UserRepositoryDep,
     sessions: SessionStoreDep,
@@ -154,7 +160,40 @@ async def get_current_user(
             title="No se pudo autenticar la solicitud",
             detail="Cuenta suspendida",
         )
+
+    if (
+        user.must_change_password
+        and request.url.path not in PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE
+    ):
+        # Without this the obligation would live only in the panel, and a
+        # temporary password would be a working credential for everything.
+        raise ProblemError(
+            status=403,
+            code="password-change-required",
+            title="Tenés que cambiar tu contraseña",
+            detail="La contraseña temporal solo sirve para elegir una nueva",
+        )
+
     return user
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+async def require_superadmin(user: CurrentUserDep) -> User:
+    """The account behind the token, refused unless it is a superadmin.
+
+    403 and not 401: a moderator holds a perfectly valid session, what it
+    lacks is the permission.
+    """
+    if user.role is not Role.SUPERADMIN:
+        raise ProblemError(
+            status=403,
+            code="superadmin-required",
+            title="No se pudo completar la acción",
+            detail="Solo un superadministrador puede gestionar administradores",
+        )
+    return user
+
+
+SuperadminDep = Annotated[User, Depends(require_superadmin)]

@@ -15,5 +15,11 @@ router = APIRouter(prefix="/admin/auth", tags=["admin"])
 
 @router.post("/login")
 async def admin_login(payload: AdminLoginRequest, service: ServiceDep) -> LoginResponse:
-    token, expires_in = await service.admin_login(email=payload.email, password=payload.password)
-    return LoginResponse(access_token=token, expires_in=expires_in)
+    token, expires_in, must_change_password = await service.admin_login(
+        email=payload.email, password=payload.password
+    )
+    return LoginResponse(
+        access_token=token,
+        expires_in=expires_in,
+        must_change_password=must_change_password,
+    )
