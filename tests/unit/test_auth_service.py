@@ -373,7 +373,7 @@ async def test_e1_h3_ca1_logging_out_revokes_the_token_until_it_would_have_expir
     service, doubles, signing_key
 ):
     token = issue_access_token(
-        signing_key, subject=uuid.uuid4(), role="user", expires_in_minutes=15
+        signing_key, subject=uuid.uuid4(), role="user", handle="@lector", expires_in_minutes=15
     )
     claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
 
@@ -391,6 +391,7 @@ async def test_e1_h3_ca1_logging_out_twice_is_not_an_error(service, doubles, sig
         signing_key,
         subject=uuid.uuid4(),
         role="user",
+        handle="@lector",
         expires_in_minutes=15,
         now=datetime.now(UTC) - timedelta(hours=1),
     )
