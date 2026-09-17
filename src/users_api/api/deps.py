@@ -30,7 +30,7 @@ from users_api.app.repositories.tokens import (
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import decode_access_token
-from users_api.config.settings import Settings
+from users_api.config.settings import API_PREFIX, Settings
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
@@ -105,7 +105,13 @@ BearerDep = Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)]
 # What a session with a password change pending is still allowed to do. The
 # first is the whole point of the session; the second is so that a session can
 # always be closed.
-PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE = ("/me/change-password", "/auth/logout")
+# Built from the prefix instead of written out: these are compared against the
+# real path of the request, so if the prefix changes and these do not, an
+# administrator with a temporary password can no longer change it.
+PATHS_ALLOWED_WHILE_PASSWORD_CHANGE_IS_DUE = (
+    f"{API_PREFIX}/me/change-password",
+    f"{API_PREFIX}/auth/logout",
+)
 
 
 async def get_current_user(
