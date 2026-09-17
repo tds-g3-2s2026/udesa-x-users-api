@@ -119,7 +119,7 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
     issued_at = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
     token = issue_access_token(
-        key, subject=subject, role="user", expires_in_minutes=15, now=issued_at
+        key, subject=subject, role="user", handle="@lector", expires_in_minutes=15, now=issued_at
     )
     # Expiry is not verified here: this test is about the claims. That the token
     # expires has its own test below, with a token that really is past its date.
@@ -132,6 +132,9 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
 
     assert claims["sub"] == str(subject)
     assert claims["role"] == "user"
+    # posts-api lee este claim para poder nombrar una cuenta sin preguntarle a
+    # users-api en cada consulta.
+    assert claims["handle"] == "@lector"
     assert uuid.UUID(claims["jti"])
     assert claims["exp"] - claims["iat"] == timedelta(minutes=15).total_seconds()
 
@@ -140,7 +143,9 @@ def test_e1_h2_ca1_token_is_signed_with_eddsa_and_not_hs256():
     # ARQUITECTURA.md rules out HS256: posts-api will validate these tokens and a
     # shared secret between services is exactly what must be avoided.
     key = Ed25519PrivateKey.generate()
-    token = issue_access_token(key, subject=uuid.uuid4(), role="user", expires_in_minutes=15)
+    token = issue_access_token(
+        key, subject=uuid.uuid4(), role="user", handle="@lector", expires_in_minutes=15
+    )
     assert jwt.get_unverified_header(token)["alg"] == "EdDSA"
 
 
@@ -150,6 +155,7 @@ def test_e1_h2_ca1_expired_token_is_rejected():
         key,
         subject=uuid.uuid4(),
         role="user",
+        handle="@lector",
         expires_in_minutes=15,
         now=datetime.now(UTC) - timedelta(hours=1),
     )

@@ -80,6 +80,7 @@ def issue_access_token(
     *,
     subject: uuid.UUID,
     role: str,
+    handle: str,
     expires_in_minutes: int,
     now: datetime | None = None,
 ) -> str:
@@ -88,11 +89,17 @@ def issue_access_token(
     EdDSA and not HS256: posts-api will validate these tokens, and a shared
     secret between services is exactly what the architecture rules out. The jti
     is what allows revoking one token without touching the rest.
+
+    The handle travels along so the other services can name an account without
+    asking this one. It is safe to copy because a handle is fixed at
+    registration and the profile endpoint refuses to change it, so what the
+    token carries cannot go stale.
     """
     issued_at = now or datetime.now(UTC)
     payload = {
         "sub": str(subject),
         "role": role,
+        "handle": handle,
         "jti": str(uuid.uuid4()),
         "iat": issued_at,
         "exp": issued_at + timedelta(minutes=expires_in_minutes),

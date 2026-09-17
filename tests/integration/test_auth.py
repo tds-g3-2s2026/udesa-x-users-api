@@ -111,6 +111,7 @@ async def test_e1_h2_ca1_login_returns_a_jwt_with_expiration(api):
         algorithms=["EdDSA"],
     )
     assert claims["role"] == "user"
+    assert claims["handle"] == "@alumno_01"
     assert claims["exp"] - claims["iat"] == 15 * 60
 
 

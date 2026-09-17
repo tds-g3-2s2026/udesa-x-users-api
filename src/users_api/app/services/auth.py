@@ -270,6 +270,7 @@ class AuthService:
             self.signing_key,
             subject=user.id,
             role=user.role.value,
+            handle=user.handle,
             expires_in_minutes=self.settings.access_token_minutes,
         )
         return token, self.settings.access_token_minutes * 60
