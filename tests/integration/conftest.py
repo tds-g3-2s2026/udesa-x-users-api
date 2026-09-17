@@ -13,7 +13,9 @@ async def api(clean_state, caplog):
 
     caplog.set_level(logging.INFO)
     async with (
-        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+        # The prefix travels in the base URL so each test keeps writing the path
+        # it cares about, and the request that goes out is the real one.
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test/api") as client,
         app.router.lifespan_context(app),
     ):
         yield Api(client, app, caplog)
