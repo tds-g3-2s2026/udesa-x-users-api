@@ -68,6 +68,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
 
+# Every endpoint reachable from outside hangs under this prefix: the cluster has
+# a single Ingress for the whole system and routes by path. It lives here, and
+# not in main.py, so the guards that compare paths lean on the same value
+# without importing the application.
+API_PREFIX = "/api"
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

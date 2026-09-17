@@ -21,7 +21,7 @@ from users_api.api.preferences import router as preferences_router
 from users_api.api.profile import router as profile_router
 from users_api.app.errors import ProblemError
 from users_api.app.security import load_signing_key
-from users_api.config.settings import get_settings
+from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
 from users_api.infrastructure.email.console import ConsoleEmailSender
 
@@ -70,11 +70,14 @@ app.add_middleware(
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
+# The healthcheck stays out: the Kubernetes probes reach the pod directly and
+# never pass through the Ingress.
 app.include_router(health_router)
-app.include_router(auth_router)
-app.include_router(admin_auth_router)
-app.include_router(admin_users_router)
-app.include_router(password_reset_router)
-app.include_router(password_change_router)
-app.include_router(profile_router)
-app.include_router(preferences_router)
+
+app.include_router(auth_router, prefix=API_PREFIX)
+app.include_router(admin_auth_router, prefix=API_PREFIX)
+app.include_router(admin_users_router, prefix=API_PREFIX)
+app.include_router(password_reset_router, prefix=API_PREFIX)
+app.include_router(password_change_router, prefix=API_PREFIX)
+app.include_router(profile_router, prefix=API_PREFIX)
+app.include_router(preferences_router, prefix=API_PREFIX)

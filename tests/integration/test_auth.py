@@ -220,4 +220,4 @@ async def test_errors_follow_the_problem_details_format(api):
     body = response.json()
     assert set(body) >= {"type", "title", "status", "detail", "traceId", "instance"}
     assert body["status"] == 401
-    assert body["instance"] == "/auth/login"
+    assert body["instance"] == "/api/auth/login"
