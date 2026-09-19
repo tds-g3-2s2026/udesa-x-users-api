@@ -19,7 +19,7 @@ from users_api.app.security import (
     issue_access_token,
     verify_password,
 )
-from users_api.config.settings import Settings
+from users_api.config.settings import API_PREFIX, Settings
 
 # The same message for a missing account and a wrong password, so the response
 # never tells an attacker which accounts exist.
@@ -111,7 +111,9 @@ class AuthService:
                 expires_at=now + timedelta(hours=self.settings.email_verification_hours),
             )
         )
-        verification_url = f"{self.settings.public_base_url}/auth/verify?token={raw_token}"
+        verification_url = (
+            f"{self.settings.public_base_url}{API_PREFIX}/auth/verify?token={raw_token}"
+        )
         await self.email_sender.send_verification(to=user.email, verification_url=verification_url)
         return raw_token
 

@@ -222,3 +222,25 @@ async def test_errors_follow_the_problem_details_format(api):
     assert set(body) >= {"type", "title", "status", "detail", "traceId", "instance"}
     assert body["status"] == 401
     assert body["instance"] == "/api/auth/login"
+
+
+async def test_the_verification_link_points_at_a_route_that_exists(api):
+    """The link is built by hand, so nothing else notices when the routes move.
+
+    It broke once already: the endpoints moved under /api and this string
+    stayed where it was, pointing at a path the service no longer serves.
+    """
+    await api.register()
+
+    link = api.last_emailed_link()
+
+    assert "/api/auth/verify?token=" in link
+
+
+async def test_the_reset_link_points_at_a_route_that_exists(api):
+    await api.register_and_verify()
+    await api.forgot_password()
+
+    link = api.last_emailed_link()
+
+    assert "/api/auth/reset-password?token=" in link

@@ -87,6 +87,12 @@ class Api:
         assert links, "no se encontro ningun link en el log"
         return links[-1]
 
+    def last_emailed_link(self) -> str:
+        """The whole URL the mail carries, not just its token."""
+        links = re.findall(r"(http://\S+)", self.caplog.text)
+        assert links, "no se encontro ningun link en el log"
+        return links[-1]
+
     async def verify_last(self):
         return await self.client.post("/auth/verify", json={"token": self.last_emailed_token()})
 
