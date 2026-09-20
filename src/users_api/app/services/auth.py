@@ -272,6 +272,7 @@ class AuthService:
             role=user.role.value,
             handle=user.handle,
             expires_in_minutes=self.settings.access_token_minutes,
+            issuer=self.settings.jwt_issuer,
         )
         return token, self.settings.access_token_minutes * 60
 

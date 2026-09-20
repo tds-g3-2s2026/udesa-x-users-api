@@ -82,6 +82,7 @@ def issue_access_token(
     role: str,
     handle: str,
     expires_in_minutes: int,
+    issuer: str,
     now: datetime | None = None,
 ) -> str:
     """Sign the access token described in ARQUITECTURA.md: sub, role and jti.
@@ -97,6 +98,7 @@ def issue_access_token(
     """
     issued_at = now or datetime.now(UTC)
     payload = {
+        "iss": issuer,
         "sub": str(subject),
         "role": role,
         "handle": handle,

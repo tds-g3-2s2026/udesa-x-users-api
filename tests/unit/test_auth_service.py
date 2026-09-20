@@ -261,13 +261,16 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
 ):
     user = build_user()
     doubles["users"].find_by_identifier.return_value = user
+    service.settings.jwt_issuer = "configured-users-api"
 
     token, expires_in = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
 
     doubles["rate_limiter"].reset.assert_awaited_once()
     assert expires_in == 15 * 60
 
-    claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
+    claims = jwt.decode(
+        token, signing_key.public_key(), algorithms=["EdDSA"], issuer="configured-users-api"
+    )
     assert claims["sub"] == str(user.id)
     assert claims["role"] == "user"
 
@@ -373,7 +376,12 @@ async def test_e1_h3_ca1_logging_out_revokes_the_token_until_it_would_have_expir
     service, doubles, signing_key
 ):
     token = issue_access_token(
-        signing_key, subject=uuid.uuid4(), role="user", handle="@lector", expires_in_minutes=15
+        signing_key,
+        subject=uuid.uuid4(),
+        role="user",
+        handle="@lector",
+        expires_in_minutes=15,
+        issuer=service.settings.jwt_issuer,
     )
     claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
 
@@ -393,6 +401,7 @@ async def test_e1_h3_ca1_logging_out_twice_is_not_an_error(service, doubles, sig
         role="user",
         handle="@lector",
         expires_in_minutes=15,
+        issuer=service.settings.jwt_issuer,
         now=datetime.now(UTC) - timedelta(hours=1),
     )
 

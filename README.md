@@ -58,6 +58,9 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | Variable | Default | Para qué |
 |---|---|---|
 | `JWT_PRIVATE_KEY` | efímera | Clave Ed25519 en PEM. Sin definir, se genera una por arranque |
+| `JWT_ISSUER` | `users-api` | Emisor incluido en el claim `iss` de los tokens |
+| `LOG_LEVEL` | `INFO` | Nivel de log |
+| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo; en el cluster incluye `/api` |
 | `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
 | `ADMIN_LOGIN_MAX_ATTEMPTS` / `ADMIN_LOGIN_LOCKOUT_MINUTES` | `3` / `30` | Bloqueo del login del backoffice. Contador independiente del de la app |
@@ -66,11 +69,55 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
 | `ADMINISTRATOR_EMAIL_DOMAIN` | sin definir | Dominio al que tiene que pertenecer el correo de un administrador nuevo. Vacío significa sin restricción |
 
+## Despliegue en Kubernetes
+
+Los cuatro manifiestos de `k8s/` usan el namespace `tds-group-3`, según
+[ADR-008](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-008-plataforma-de-despliegue.md).
+El Deployment tiene una réplica, requests de `100m` / `128Mi` y limits de
+`500m` / `512Mi`, dentro de los límites definidos por la cátedra. El rolling update
+requiere un slot adicional de pod; si no queda espacio en la cuota compartida,
+hay que usar `maxSurge: 0` y `maxUnavailable: 1`, aceptando la interrupción.
+
+La imagen queda parametrizada hasta contar con la URI asignada de ECR. El futuro
+pipeline debe reemplazar `${ECR_URI_PREFIX}/users-api:${IMAGE_TAG}` por la URI real
+y un tag inmutable antes de aplicar el Deployment. `ECR_URI_PREFIX` no lleva barra
+final; si ECR asigna otro nombre o separador de repositorio, se reemplaza la referencia
+completa. Kubernetes no expande estas variables.
+
+Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
+`DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
+`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos).
+Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus valores.
+El pipeline debe generar y aplicar el Secret con valores de GitHub Secrets.
+
+`PUBLIC_BASE_URL` usa el host del Ingress con `/api`, porque la aplicación agrega
+`/auth/verify` al construir el link. `JWT_ISSUER` configura el claim `iss` de los tokens
+emitidos; no agrega validación de emisor al recibir tokens.
+
+El Service es interno (`ClusterIP`, puerto `80` hacia `8000`); la entrada externa
+pasa por el Ingress y el gateway. `containerPort`, `targetPort`, `EXPOSE` y el comando
+Uvicorn del Dockerfile coinciden en `8000`. Ambas sondas consultan `/healthcheck`.
+Ese endpoint comprueba PostgreSQL y Redis: una caída sostenida de esas dependencias
+también provoca reinicios por la sonda de vida.
+
+Para validar sin modificar el cluster:
+
+```bash
+kubectl apply --dry-run=client -f k8s/
+```
+
+El comando requiere kubectl y un contexto con acceso de lectura al API server
+para consultar descubrimiento y esquemas, aunque no requiere permisos de escritura.
+La validación de la plantilla no acredita que los secretos ni la imagen estén listos.
+Para desplegar, aplicar explícitamente ConfigMap, Secret real, Deployment con imagen
+resuelta y Service, sin incluir `secret.template.yaml`. La aprobación del tutor se
+gestiona en el PR.
+
 ## Primer superadmin
 
 El panel no puede crear al primer administrador porque nadie puede entrar al panel todavía. Se
 siembra con un comando que corre antes de arrancar la API; en desarrollo lo dispara el compose,
-en producción es un job del despliegue, con las credenciales por SOPS:
+en producción es un job del despliegue, con las credenciales inyectadas desde GitHub Secrets:
 
 ```bash
 SUPERADMIN_EMAIL=admin@udesa.edu.ar SUPERADMIN_PASSWORD=Admin1234 uv run python -m users_api.seed_superadmin

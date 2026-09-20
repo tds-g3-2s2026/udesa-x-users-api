@@ -16,8 +16,9 @@ class Settings(BaseSettings):
     # Ed25519 private key in PEM format. When absent, the service generates an
     # ephemeral pair at startup so development needs no setup. Tokens then stop
     # being valid across restarts, which is fine locally and unacceptable in
-    # production, where the key arrives through SOPS.
+    # production, where the key arrives through a Kubernetes Secret.
     jwt_private_key: str | None = None
+    jwt_issuer: str = "users-api"
     access_token_minutes: int = 15
 
     # Five failed attempts lock the account for fifteen minutes.
