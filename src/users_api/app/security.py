@@ -109,5 +109,11 @@ def issue_access_token(
     return jwt.encode(payload, signing_key, algorithm=TOKEN_ALGORITHM)
 
 
-def decode_access_token(public_key, token: str) -> dict:
-    return jwt.decode(token, public_key, algorithms=[TOKEN_ALGORITHM])
+def decode_access_token(public_key, token: str, *, issuer: str) -> dict:
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=[TOKEN_ALGORITHM],
+        issuer=issuer,
+        options={"require": ["iss"]},
+    )
