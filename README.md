@@ -75,31 +75,46 @@ Los cuatro manifiestos de `k8s/` usan el namespace `tds-group-3`, según
 [ADR-008](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-008-plataforma-de-despliegue.md).
 El Deployment tiene una réplica, requests de `100m` / `128Mi` y limits de
 `500m` / `512Mi`, dentro de los límites definidos por la cátedra. El rolling update
-requiere un slot adicional de pod; si no queda espacio en la cuota compartida,
-hay que usar `maxSurge: 0` y `maxUnavailable: 1`, aceptando la interrupción.
+requiere un slot adicional de pod y cuota para el surge y los Jobs de migración.
+Si no alcanza el margen, esperar o liberar capacidad antes del rollout, sin cambiar
+automáticamente la estrategia para interrumpir el servicio.
 
 La imagen queda parametrizada hasta contar con la URI asignada de ECR. El futuro
-pipeline debe reemplazar `${ECR_URI_PREFIX}/users-api:${IMAGE_TAG}` por la URI real
-y un tag inmutable antes de aplicar el Deployment. `ECR_URI_PREFIX` no lleva barra
-final; si ECR asigna otro nombre o separador de repositorio, se reemplaza la referencia
-completa. Kubernetes no expande estas variables.
+pipeline debe reemplazar `${ECR_IMAGE}` por la URI real inmutable (por ejemplo
+`<account-id>.dkr.ecr.<region>.amazonaws.com/tds-group-3/users-api:<git-sha>`)
+antes de aplicar el Deployment. Kubernetes no expande estas variables.
 
 Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
 `DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
 `JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos).
 Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus valores.
 El pipeline debe generar y aplicar el Secret con valores de GitHub Secrets.
+Notar que `envFrom` inyecta las variables en los contenedores al momento de creación:
+si se actualiza el ConfigMap o el Secret, es necesario reemplazar o reiniciar los pods
+(`kubectl rollout restart deployment/users-api -n tds-group-3`, desde el CD) para que tomen
+los nuevos valores. Los integrantes conservan acceso de solo lectura al cluster.
+
+En producción, las migraciones de base de datos (`alembic upgrade head`) y la siembra
+del superadmin (`python -m users_api.seed_superadmin`) se ejecutan como tareas/Jobs
+separados previos al despliegue de la API, usando la misma imagen e inyectando
+las credenciales correspondientes. Reservar cupo y cuota para estos Jobs y esperar su
+éxito antes del rollout. El futuro CD es responsable de su ciclo de vida; no se incluyen
+Jobs en `k8s/` ni se permite aplicar indiscriminadamente esa carpeta con secretos vacíos.
 
 `PUBLIC_BASE_URL` usa el host del Ingress con `/api`, porque la aplicación agrega
-`/auth/verify` al construir el link. `JWT_ISSUER` configura el claim `iss` de los tokens
-emitidos; no agrega validación de emisor al recibir tokens.
+`/auth/verify` al construir el link. `JWT_ISSUER` (`users-api`) configura el claim `iss`
+de los tokens emitidos y es validado estrictamente al verificar la firma de tokens recibidos.
+Los tokens anteriores sin `iss` dejan de ser válidos; hay que iniciar sesión de nuevo.
+La privada debe ser estable en producción y posts debe recibir su pública correspondiente.
 
-El Service es interno (`ClusterIP`, puerto `80` hacia `8000`); la entrada externa
-pasa por el Ingress y el gateway. `containerPort`, `targetPort`, `EXPOSE` y el comando
-Uvicorn del Dockerfile coinciden en `8000`. Ambas sondas consultan `/healthcheck`.
-Ese endpoint comprueba PostgreSQL y Redis: una caída sostenida de esas dependencias
-también provoca reinicios por la sonda de vida.
-
+El Service es interno (`ClusterIP`, puerto `80` hacia el targetPort nombrado `http` que resuelve
+al containerPort `8000`); la entrada externa pasa por el Ingress y el gateway.
+Las sondas de Kubernetes utilizan el puerto nombrado `http`:
+- `readinessProbe` consulta `/healthcheck`: comprueba PostgreSQL y Redis; un fallo saca
+  al pod de rotación sin reiniciarlo.
+- `livenessProbe` consulta `/livez`: comprueba únicamente la vitalidad del proceso Python/FastAPI
+  sin tocar dependencias externas, evitando reinicios en cascada por caídas transitorias de BD o Redis.
+Ambos endpoints quedan fuera del prefijo `/api` y sin autenticación ni rate limiting.
 Para validar sin modificar el cluster:
 
 ```bash

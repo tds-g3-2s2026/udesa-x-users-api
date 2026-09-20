@@ -16,3 +16,9 @@ async def healthcheck(request: Request) -> JSONResponse:
     ]
     body, status_code = build_report(statuses)
     return JSONResponse(body, status_code=status_code)
+
+
+@router.get("/livez")
+async def livez() -> dict[str, str]:
+    """Liveness probe: report process alive without checking dependencies."""
+    return {"status": "ok"}
