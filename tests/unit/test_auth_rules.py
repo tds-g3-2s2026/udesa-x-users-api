@@ -119,7 +119,13 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
     issued_at = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
     token = issue_access_token(
-        key, subject=subject, role="user", handle="@lector", expires_in_minutes=15, now=issued_at
+        key,
+        subject=subject,
+        role="user",
+        handle="@lector",
+        expires_in_minutes=15,
+        issuer="test-users-api",
+        now=issued_at,
     )
     # Expiry is not verified here: this test is about the claims. That the token
     # expires has its own test below, with a token that really is past its date.
@@ -127,6 +133,7 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
         token,
         key.public_key(),
         algorithms=[TOKEN_ALGORITHM],
+        issuer="test-users-api",
         options={"verify_exp": False},
     )
 
@@ -144,7 +151,12 @@ def test_e1_h2_ca1_token_is_signed_with_eddsa_and_not_hs256():
     # shared secret between services is exactly what must be avoided.
     key = Ed25519PrivateKey.generate()
     token = issue_access_token(
-        key, subject=uuid.uuid4(), role="user", handle="@lector", expires_in_minutes=15
+        key,
+        subject=uuid.uuid4(),
+        role="user",
+        handle="@lector",
+        expires_in_minutes=15,
+        issuer="test-users-api",
     )
     assert jwt.get_unverified_header(token)["alg"] == "EdDSA"
 
@@ -157,15 +169,51 @@ def test_e1_h2_ca1_expired_token_is_rejected():
         role="user",
         handle="@lector",
         expires_in_minutes=15,
+        issuer="test-users-api",
         now=datetime.now(UTC) - timedelta(hours=1),
     )
     with pytest.raises(jwt.ExpiredSignatureError):
         jwt.decode(token, key.public_key(), algorithms=[TOKEN_ALGORITHM])
 
 
+def test_decode_access_token_validates_issuer():
+    from users_api.app.security import decode_access_token
+
+    key = Ed25519PrivateKey.generate()
+    token = issue_access_token(
+        key,
+        subject=uuid.uuid4(),
+        role="user",
+        handle="@lector",
+        expires_in_minutes=15,
+        issuer="users-api",
+    )
+    # Correct issuer decodes successfully
+    claims = decode_access_token(key.public_key(), token, issuer="users-api")
+    assert claims["iss"] == "users-api"
+
+    # Incorrect issuer raises InvalidIssuerError
+    with pytest.raises(jwt.InvalidIssuerError):
+        decode_access_token(key.public_key(), token, issuer="other-service")
+
+    # Token missing iss claim fails when issuer is required
+    token_without_iss = jwt.encode(
+        {
+            "sub": str(uuid.uuid4()),
+            "role": "user",
+            "iat": datetime.now(UTC),
+            "exp": datetime.now(UTC) + timedelta(minutes=15),
+        },
+        key,
+        algorithm=TOKEN_ALGORITHM,
+    )
+    with pytest.raises(jwt.MissingRequiredClaimError):
+        decode_access_token(key.public_key(), token_without_iss, issuer="users-api")
+
+
 def test_signing_key_is_generated_when_none_is_configured():
     # Development convenience: no key means an ephemeral one, so nothing has to
-    # be versioned. Production passes the key through SOPS.
+    # be versioned. Production passes the key through a Kubernetes Secret.
     assert isinstance(load_signing_key(None), Ed25519PrivateKey)
 
 

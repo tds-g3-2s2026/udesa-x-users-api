@@ -274,6 +274,7 @@ class AuthService:
             role=user.role.value,
             handle=user.handle,
             expires_in_minutes=self.settings.access_token_minutes,
+            issuer=self.settings.jwt_issuer,
         )
         return token, self.settings.access_token_minutes * 60
 
@@ -307,7 +308,11 @@ class AuthService:
         means recording its jti as revoked until it would have expired anyway.
         """
         try:
-            claims = decode_access_token(self.signing_key.public_key(), token)
+            claims = decode_access_token(
+                self.signing_key.public_key(),
+                token,
+                issuer=self.settings.jwt_issuer,
+            )
         except jwt.ExpiredSignatureError:
             # Already unusable on its own; revoking it changes nothing, so this
             # is not an error. Logout is idempotent.

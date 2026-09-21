@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: users-api-config
+  namespace: tds-group-3
+data:
+  LOG_LEVEL: "INFO"
+  PUBLIC_BASE_URL: "https://tds-group-3.tds-linar.udesa.edu.ar/api"
+  JWT_ISSUER: "users-api"
+  # asyncpg con ssl=verify-full busca ~/.postgresql/root.crt, no el almacén del
+  # sistema: sin esta ruta la conexión a Neon falla antes de abrirse.
+  PGSSLROOTCERT: "/etc/ssl/certs/ca-certificates.crt"

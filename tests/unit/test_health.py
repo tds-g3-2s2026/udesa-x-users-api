@@ -1,5 +1,8 @@
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 
+from users_api.api.health import router
 from users_api.infrastructure.health import (
     DependencyStatus,
     build_report,
@@ -82,3 +85,17 @@ def test_a_single_failing_dependency_returns_503(failing):
     assert status_code == 503
     assert body["status"] == "degraded"
     assert body["dependencies"][failing] == "no connection"
+
+
+async def test_liveness_stays_healthy_when_readiness_loses_dependencies():
+    app = FastAPI()
+    app.include_router(router)
+    app.state.engine = FakeEngine(fails=True)
+    app.state.redis = FakeRedis(fails=True)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        readiness = await client.get("/healthcheck")
+        liveness = await client.get("/livez")
+
+    assert readiness.status_code == 503
+    assert liveness.status_code == 200

@@ -82,6 +82,7 @@ def issue_access_token(
     role: str,
     handle: str,
     expires_in_minutes: int,
+    issuer: str,
     now: datetime | None = None,
 ) -> str:
     """Sign the access token described in ARQUITECTURA.md: sub, role and jti.
@@ -97,6 +98,7 @@ def issue_access_token(
     """
     issued_at = now or datetime.now(UTC)
     payload = {
+        "iss": issuer,
         "sub": str(subject),
         "role": role,
         "handle": handle,
@@ -107,5 +109,11 @@ def issue_access_token(
     return jwt.encode(payload, signing_key, algorithm=TOKEN_ALGORITHM)
 
 
-def decode_access_token(public_key, token: str) -> dict:
-    return jwt.decode(token, public_key, algorithms=[TOKEN_ALGORITHM])
+def decode_access_token(public_key, token: str, *, issuer: str) -> dict:
+    return jwt.decode(
+        token,
+        public_key,
+        algorithms=[TOKEN_ALGORITHM],
+        issuer=issuer,
+        options={"require": ["iss"]},
+    )

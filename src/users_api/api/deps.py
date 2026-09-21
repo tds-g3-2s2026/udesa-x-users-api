@@ -120,6 +120,7 @@ async def get_current_user(
     users: UserRepositoryDep,
     sessions: SessionStoreDep,
     signing_key: SigningKeyDep,
+    settings: SettingsDep,
 ) -> User:
     """The account behind the bearer token, or no answer at all.
 
@@ -129,7 +130,11 @@ async def get_current_user(
     session would be a promise the service does not keep.
     """
     try:
-        claims = decode_access_token(signing_key.public_key(), credentials.credentials)
+        claims = decode_access_token(
+            signing_key.public_key(),
+            credentials.credentials,
+            issuer=settings.jwt_issuer,
+        )
     except jwt.InvalidTokenError as exc:
         raise ProblemError(
             status=401,

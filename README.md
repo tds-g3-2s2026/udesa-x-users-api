@@ -58,6 +58,9 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | Variable | Default | Para qué |
 |---|---|---|
 | `JWT_PRIVATE_KEY` | efímera | Clave Ed25519 en PEM. Sin definir, se genera una por arranque |
+| `JWT_ISSUER` | `users-api` | Emisor incluido en el claim `iss` de los tokens |
+| `LOG_LEVEL` | `INFO` | Nivel de log |
+| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo; en el cluster incluye `/api` |
 | `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
 | `ADMIN_LOGIN_MAX_ATTEMPTS` / `ADMIN_LOGIN_LOCKOUT_MINUTES` | `3` / `30` | Bloqueo del login del backoffice. Contador independiente del de la app |
@@ -66,11 +69,70 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
 | `ADMINISTRATOR_EMAIL_DOMAIN` | sin definir | Dominio al que tiene que pertenecer el correo de un administrador nuevo. Vacío significa sin restricción |
 
+## Despliegue en Kubernetes
+
+Los cuatro manifiestos de `k8s/` usan el namespace `tds-group-3`, según
+[ADR-008](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-008-plataforma-de-despliegue.md).
+El Deployment tiene una réplica, requests de `100m` / `128Mi` y limits de
+`500m` / `512Mi`, dentro de los límites definidos por la cátedra. El rolling update
+requiere un slot adicional de pod y cuota para el surge y los Jobs de migración.
+Si no alcanza el margen, esperar o liberar capacidad antes del rollout, sin cambiar
+automáticamente la estrategia para interrumpir el servicio.
+
+La imagen queda parametrizada hasta contar con la URI asignada de ECR. El futuro
+pipeline debe reemplazar `${ECR_IMAGE}` por la URI real inmutable (por ejemplo
+`<account-id>.dkr.ecr.<region>.amazonaws.com/tds-group-3/users-api:<git-sha>`)
+antes de aplicar el Deployment. Kubernetes no expande estas variables.
+
+Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
+`DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
+`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos).
+Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus valores.
+El pipeline debe generar y aplicar el Secret con valores de GitHub Secrets.
+Notar que `envFrom` inyecta las variables en los contenedores al momento de creación:
+si se actualiza el ConfigMap o el Secret, es necesario reemplazar o reiniciar los pods
+(`kubectl rollout restart deployment/users-api -n tds-group-3`, desde el CD) para que tomen
+los nuevos valores. Los integrantes conservan acceso de solo lectura al cluster.
+
+En producción, las migraciones de base de datos (`alembic upgrade head`) y la siembra
+del superadmin (`python -m users_api.seed_superadmin`) se ejecutan como tareas/Jobs
+separados previos al despliegue de la API, usando la misma imagen e inyectando
+las credenciales correspondientes. Reservar cupo y cuota para estos Jobs y esperar su
+éxito antes del rollout. El futuro CD es responsable de su ciclo de vida; no se incluyen
+Jobs en `k8s/` ni se permite aplicar indiscriminadamente esa carpeta con secretos vacíos.
+
+`PUBLIC_BASE_URL` usa el host del Ingress con `/api`, porque la aplicación agrega
+`/auth/verify` al construir el link. `JWT_ISSUER` (`users-api`) configura el claim `iss`
+de los tokens emitidos y es validado estrictamente al verificar la firma de tokens recibidos.
+Los tokens anteriores sin `iss` dejan de ser válidos; hay que iniciar sesión de nuevo.
+La privada debe ser estable en producción y posts debe recibir su pública correspondiente.
+
+El Service es interno (`ClusterIP`, puerto `80` hacia el targetPort nombrado `http` que resuelve
+al containerPort `8000`); la entrada externa pasa por el Ingress y el gateway.
+Las sondas de Kubernetes utilizan el puerto nombrado `http`:
+- `readinessProbe` consulta `/healthcheck`: comprueba PostgreSQL y Redis; un fallo saca
+  al pod de rotación sin reiniciarlo.
+- `livenessProbe` consulta `/livez`: comprueba únicamente la vitalidad del proceso Python/FastAPI
+  sin tocar dependencias externas, evitando reinicios en cascada por caídas transitorias de BD o Redis.
+Ambos endpoints quedan fuera del prefijo `/api` y sin autenticación ni rate limiting.
+Para validar sin modificar el cluster:
+
+```bash
+kubectl apply --dry-run=client -f k8s/
+```
+
+El comando requiere kubectl y un contexto con acceso de lectura al API server
+para consultar descubrimiento y esquemas, aunque no requiere permisos de escritura.
+La validación de la plantilla no acredita que los secretos ni la imagen estén listos.
+Para desplegar, aplicar explícitamente ConfigMap, Secret real, Deployment con imagen
+resuelta y Service, sin incluir `secret.template.yaml`. La aprobación del tutor se
+gestiona en el PR.
+
 ## Primer superadmin
 
 El panel no puede crear al primer administrador porque nadie puede entrar al panel todavía. Se
 siembra con un comando que corre antes de arrancar la API; en desarrollo lo dispara el compose,
-en producción es un job del despliegue, con las credenciales por SOPS:
+en producción es un job del despliegue, con las credenciales inyectadas desde GitHub Secrets:
 
 ```bash
 SUPERADMIN_EMAIL=admin@udesa.edu.ar SUPERADMIN_PASSWORD=Admin1234 uv run python -m users_api.seed_superadmin

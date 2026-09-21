@@ -70,8 +70,8 @@ app.add_middleware(
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
 
-# The healthcheck stays out: the Kubernetes probes reach the pod directly and
-# never pass through the Ingress.
+# Probes stay out: Kubernetes probes (/healthcheck, /livez) reach the pod
+# directly and never pass through the Ingress.
 app.include_router(health_router)
 
 app.include_router(auth_router, prefix=API_PREFIX)
