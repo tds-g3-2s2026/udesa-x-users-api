@@ -28,6 +28,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /healthcheck` | Verifica PostgreSQL y Redis |
 | `POST /auth/register` | Crea la cuenta y envía el link de verificación |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
+| `GET /auth/verify?token=` | Lo mismo, para el link del correo: un cliente de correo solo puede abrirlo con `GET` |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token. El claim `role` lleva el rol real de la cuenta |
 | `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
@@ -35,7 +36,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `POST /auth/logout` | Revoca el token de sesión activo |
-| `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
+| `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
@@ -248,20 +249,20 @@ curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: ap
 ```
 
 `E1-H5 CA.4`. La respuesta es esta misma para una dirección que no existe: probá con
-`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el link, que dura diez
+`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el código, que dura diez
 minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
 
 ```
 INFO users_api.infrastructure.email.console | Correo de recuperación para alumno@udesa.edu.ar.
-Link válido por tiempo limitado: http://localhost:8000/auth/reset-password?token=VMT1tI_Hy7...
+Código válido por tiempo limitado: VMT1tI_Hy7...
 ```
 
-Con ese token se cambia la contraseña. La confirmación va aparte y tiene que coincidir
+Con ese código se cambia la contraseña: es lo que el usuario pega en la app. La confirmación va aparte y tiene que coincidir
 (`E1-H5 CA.3`):
 
 ```powershell
 $log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
-$tok = [regex]::Match($log, 'reset-password\?token=([\w\-]+)').Groups[1].Value
+$tok = [regex]::Match($log, 'Código válido por tiempo limitado: ([\w\-]+)').Groups[1].Value
 '{"token":"' + $tok + '","password":"Contrasena2","password_confirmation":"Contrasena2"}' | Set-Content "$env:TEMP\reset.json" -Encoding utf8 -NoNewline
 curl.exe -X POST http://localhost:8000/auth/reset-password -H "Content-Type: application/json" --data "@$env:TEMP\reset.json"
 ```

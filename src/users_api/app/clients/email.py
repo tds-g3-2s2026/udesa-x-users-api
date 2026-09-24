@@ -19,7 +19,12 @@ class EmailSender(ABC):
     async def send_verification(self, *, to: str, verification_url: str) -> None: ...
 
     @abstractmethod
-    async def send_password_reset(self, *, to: str, reset_url: str) -> None: ...
+    async def send_password_reset(self, *, to: str, token: str) -> None:
+        """Carry the token itself, for the user to paste in the app.
+
+        Choosing the new password happens in the app, and a mail link can only
+        open a browser.
+        """
 
     @abstractmethod
     async def send_password_changed(self, *, to: str) -> None:

@@ -19,11 +19,11 @@ class ConsoleEmailSender(EmailSender):
             verification_url,
         )
 
-    async def send_password_reset(self, *, to: str, reset_url: str) -> None:
+    async def send_password_reset(self, *, to: str, token: str) -> None:
         logger.info(
-            "Correo de recuperación para %s. Link válido por tiempo limitado: %s",
+            "Correo de recuperación para %s. Código válido por tiempo limitado: %s",
             to,
-            reset_url,
+            token,
         )
 
     async def send_password_changed(self, *, to: str) -> None:

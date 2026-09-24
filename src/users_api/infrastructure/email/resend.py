@@ -39,15 +39,16 @@ class ResendEmailSender(EmailSender):
             ),
         )
 
-    async def send_password_reset(self, *, to: str, reset_url: str) -> None:
+    async def send_password_reset(self, *, to: str, token: str) -> None:
         await self.send(
             to=to,
             subject="Recuperá tu contraseña de UdeSA-X",
             text=(
                 "Hola,\n\n"
-                "Pediste cambiar la contraseña de tu cuenta de UdeSA-X. Abrí este link:\n\n"
-                f"{reset_url}\n\n"
-                "El link vence en pocos minutos y sirve una sola vez.\n\n"
+                "Pediste cambiar la contraseña de tu cuenta de UdeSA-X. Pegá este código "
+                "en la app, en la pantalla de nueva contraseña:\n\n"
+                f"{token}\n\n"
+                "El código vence en pocos minutos y sirve una sola vez.\n\n"
                 "Si no lo pediste, ignorá este correo: tu contraseña sigue igual."
             ),
         )
@@ -70,7 +71,7 @@ class ResendEmailSender(EmailSender):
                 {"from": self.sender, "to": [to], "subject": subject, "text": text}
             )
         except ResendError as error:
-            # The message is left out of the log: it carries a single use link.
+            # The message is left out of the log: it carries a single use token.
             logger.error(
                 "Resend did not accept the mail '%s' for %s: %s %s",
                 subject,

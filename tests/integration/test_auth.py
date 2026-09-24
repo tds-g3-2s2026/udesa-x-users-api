@@ -224,23 +224,24 @@ async def test_errors_follow_the_problem_details_format(api):
     assert body["instance"] == "/api/auth/login"
 
 
-async def test_the_verification_link_points_at_a_route_that_exists(api):
-    """The link is built by hand, so nothing else notices when the routes move.
+async def test_e1_h1_ca1_opening_the_emailed_link_verifies_the_account(api):
+    """The link is built by hand, so only opening it proves the route behind it.
 
-    It broke once already: the endpoints moved under /api and this string
-    stayed where it was, pointing at a path the service no longer serves.
+    It broke once already: the endpoints moved under /api and the link stayed
+    where it was, pointing at a path the service no longer serves.
     """
     await api.register()
 
-    link = api.last_emailed_link()
+    response = await api.open_last_emailed_link()
 
-    assert "/api/auth/verify?token=" in link
+    assert response.status_code == 200
+    assert (await api.login()).status_code == 200
 
 
-async def test_the_reset_link_points_at_a_route_that_exists(api):
-    await api.register_and_verify()
-    await api.forgot_password()
+async def test_e1_h1_ca6_the_emailed_link_cannot_be_opened_twice(api):
+    await api.register()
+    await api.open_last_emailed_link()
 
-    link = api.last_emailed_link()
+    response = await api.open_last_emailed_link()
 
-    assert "/api/auth/reset-password?token=" in link
+    assert response.status_code == 400

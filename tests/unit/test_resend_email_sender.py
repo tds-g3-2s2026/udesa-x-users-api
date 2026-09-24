@@ -60,13 +60,14 @@ async def test_verification_mail_carries_the_link_from_the_verified_sender(build
     assert LINK in mail["text"]
 
 
-async def test_reset_mail_carries_the_link(build_sender):
+async def test_reset_mail_carries_the_token_and_no_link(build_sender):
     fake = FakeResend()
 
-    await build_sender(fake).send_password_reset(to="alumno@udesa.edu.ar", reset_url=LINK)
+    await build_sender(fake).send_password_reset(to="alumno@udesa.edu.ar", token="secret-token")
 
     [mail] = fake.sent
-    assert LINK in mail["text"]
+    assert "secret-token" in mail["text"]
+    assert "http" not in mail["text"]
 
 
 async def test_password_changed_mail_carries_no_link(build_sender):
