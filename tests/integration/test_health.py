@@ -1,4 +1,6 @@
 import os
+import tomllib
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -23,3 +25,18 @@ async def test_healthcheck_returns_ok_when_dependencies_are_up():
     body = response.json()
     assert body["status"] == "ok"
     assert body["dependencies"] == {"postgres": "ok", "redis": "ok"}
+
+
+async def test_healthcheck_reports_the_version_declared_in_pyproject():
+    from users_api.main import app
+
+    pyproject = Path(__file__).parents[2] / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text())["project"]["version"]
+
+    async with (
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+        app.router.lifespan_context(app),
+    ):
+        response = await client.get("/healthcheck")
+
+    assert response.json()["version"] == declared

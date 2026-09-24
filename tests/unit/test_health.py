@@ -99,3 +99,16 @@ async def test_liveness_stays_healthy_when_readiness_loses_dependencies():
 
     assert readiness.status_code == 503
     assert liveness.status_code == 200
+
+
+async def test_healthcheck_reports_the_running_version_even_when_degraded():
+    app = FastAPI(version="1.2.3")
+    app.include_router(router)
+    app.state.engine = FakeEngine(fails=True)
+    app.state.redis = FakeRedis(fails=True)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/healthcheck")
+
+    assert response.status_code == 503
+    assert response.json()["version"] == "1.2.3"
