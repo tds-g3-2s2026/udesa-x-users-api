@@ -98,12 +98,7 @@ class PasswordChangeService:
         # is on the wrong side of it too and stops working right here. This
         # runs on Redis, outside the request's transaction, and before that
         # transaction commits: the security guarantee is made to hold even if
-        # something below fails. The one thing that can still fail below is
-        # the mail: with ConsoleEmailSender it never does, but a real provider
-        # can, and if it does the password update rolls back while the
-        # revocation stands, so every session ends without the password
-        # having changed. Worth revisiting once a real provider with retries
-        # lands.
+        # something below fails.
         await self.sessions.revoke_all(
             user.id,
             now=datetime.now(UTC),

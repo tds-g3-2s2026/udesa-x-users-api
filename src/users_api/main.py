@@ -24,6 +24,7 @@ from users_api.app.security import load_signing_key
 from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
 from users_api.infrastructure.email.console import ConsoleEmailSender
+from users_api.infrastructure.email.resend import ResendEmailSender
 
 
 @asynccontextmanager
@@ -46,7 +47,12 @@ async def lifespan(app: FastAPI):
     app.state.session_factory = build_session_factory(app.state.engine)
     app.state.redis = Redis.from_url(settings.redis_url)
     app.state.signing_key = load_signing_key(settings.jwt_private_key)
-    app.state.email_sender = ConsoleEmailSender()
+    if settings.email_provider == "resend":
+        app.state.email_sender = ResendEmailSender(
+            api_key=settings.resend_api_key, sender=settings.email_from
+        )
+    else:
+        app.state.email_sender = ConsoleEmailSender()
     yield
     await app.state.engine.dispose()
     await app.state.redis.aclose()

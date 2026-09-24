@@ -1,5 +1,7 @@
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -65,7 +67,21 @@ class Settings(BaseSettings):
     # Base for the links sent by email.
     public_base_url: str = "http://localhost:8000"
 
+    # "console" writes each mail to the log and is what development and the
+    # tests run on; "resend" delivers it.
+    email_provider: Literal["console", "resend"] = "console"
+    resend_api_key: str | None = None
+    # Its domain has to be verified in Resend.
+    email_from: str = "UdeSA-X <no-reply@udesax.app>"
+
     log_level: str = "INFO"
+
+    @model_validator(mode="after")
+    def require_provider_key(self) -> "Settings":
+        # Refusing to start beats a deployment that silently never sends mail.
+        if self.email_provider == "resend" and not self.resend_api_key:
+            raise ValueError("EMAIL_PROVIDER=resend requires RESEND_API_KEY")
+        return self
 
 
 # Every endpoint reachable from outside hangs under this prefix: the cluster has

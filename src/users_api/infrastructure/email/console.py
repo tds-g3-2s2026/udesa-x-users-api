@@ -1,11 +1,7 @@
 """Mail that never leaves the machine.
 
-Writes the message to the log instead of sending it. The provider is still
-undecided and the domain was never verified, so this is what unblocks
-registration and recovery in development.
-
-Replacing it is writing another class against the same interface and changing
-one line in `main.py`. No service is touched.
+Writes the message to the log instead of sending it. Development and the tests
+run on it: the integration tests read the token back from the log.
 """
 
 import logging

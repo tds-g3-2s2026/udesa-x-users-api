@@ -8,9 +8,11 @@ from abc import ABC, abstractmethod
 
 
 class EmailSender(ABC):
-    """Sending is synchronous for now.
+    """Sending never raises: a mail that fails is logged and dropped.
 
-    A queue only pays off once notifications-api exists.
+    Services send after their own writes and before the request's transaction
+    commits, so an exception here would roll back an operation that did
+    happen. Sending is synchronous until notifications-api takes it over.
     """
 
     @abstractmethod
