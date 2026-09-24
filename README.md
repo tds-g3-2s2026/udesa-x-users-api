@@ -28,6 +28,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /healthcheck` | Verifica PostgreSQL y Redis |
 | `POST /auth/register` | Crea la cuenta y envía el link de verificación |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
+| `GET /auth/verify?token=` | Lo mismo, para el link del correo: un cliente de correo solo puede abrirlo con `GET` |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
 | `POST /auth/login` | Devuelve el access token. El claim `role` lleva el rol real de la cuenta |
 | `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
@@ -35,7 +36,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `POST /auth/logout` | Revoca el token de sesión activo |
-| `POST /auth/forgot-password` | Manda el link de recuperación, con email o handle |
+| `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
@@ -43,7 +44,8 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
 | `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
 
-En desarrollo el correo no se envía: el adaptador escribe el link en el log. Se lo saca así:
+En desarrollo el correo no se envía: el adaptador de consola escribe el link en el log (ver
+[Correo](#correo) para mandarlo de verdad). Se lo saca así:
 
 ```bash
 docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.infrastructure.email.console
@@ -68,6 +70,29 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | `SUPERADMIN_HANDLE` | `@superadmin` | Handle de esa cuenta: la columna es obligatoria y única |
 | `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
 | `ADMINISTRATOR_EMAIL_DOMAIN` | sin definir | Dominio al que tiene que pertenecer el correo de un administrador nuevo. Vacío significa sin restricción |
+| `EMAIL_PROVIDER` | `console` | `console` escribe cada correo en el log; `resend` lo entrega de verdad |
+| `RESEND_API_KEY` | sin definir | Clave de la API de Resend. Obligatoria con `EMAIL_PROVIDER=resend`: sin ella el servicio no arranca |
+| `EMAIL_FROM` | `UdeSA-X <no-reply@udesax.app>` | Remitente de todos los correos. Su dominio tiene que estar verificado en Resend |
+
+## Correo
+
+El proveedor es **Resend**, con el dominio `udesax.app` verificado. Sin un dominio verificado,
+Resend solo entrega a la dirección dueña de la cuenta. El plan gratuito permite 100 correos
+por día y 3.000 por mes.
+
+En desarrollo y en los tests se usa el adaptador de consola: los tests de integración leen el
+token del log, y así ninguna corrida manda correo de verdad. Para probar la entrega real en
+local, poné la clave en un `.env` en la raíz del repo, que no se versiona:
+
+```bash
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_...
+```
+
+Un fallo del proveedor no rompe la operación que disparó el correo. La cuenta queda creada, o
+la contraseña cambiada, y el error queda en el log sin el link, porque el link es una
+credencial de un solo uso. Si el correo de verificación no llegó, se pide otro con
+`POST /auth/resend-verification`.
 
 ## Despliegue en Kubernetes
 
@@ -286,20 +311,20 @@ curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: ap
 ```
 
 `E1-H5 CA.4`. La respuesta es esta misma para una dirección que no existe: probá con
-`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el link, que dura diez
+`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el código, que dura diez
 minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
 
 ```
 INFO users_api.infrastructure.email.console | Correo de recuperación para alumno@udesa.edu.ar.
-Link válido por tiempo limitado: http://localhost:8000/auth/reset-password?token=VMT1tI_Hy7...
+Código válido por tiempo limitado: VMT1tI_Hy7...
 ```
 
-Con ese token se cambia la contraseña. La confirmación va aparte y tiene que coincidir
+Con ese código se cambia la contraseña: es lo que el usuario pega en la app. La confirmación va aparte y tiene que coincidir
 (`E1-H5 CA.3`):
 
 ```powershell
 $log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
-$tok = [regex]::Match($log, 'reset-password\?token=([\w\-]+)').Groups[1].Value
+$tok = [regex]::Match($log, 'Código válido por tiempo limitado: ([\w\-]+)').Groups[1].Value
 '{"token":"' + $tok + '","password":"Contrasena2","password_confirmation":"Contrasena2"}' | Set-Content "$env:TEMP\reset.json" -Encoding utf8 -NoNewline
 curl.exe -X POST http://localhost:8000/auth/reset-password -H "Content-Type: application/json" --data "@$env:TEMP\reset.json"
 ```
@@ -446,7 +471,7 @@ src/users_api/
 └── infrastructure/         # las implementaciones, agrupadas por tecnología
     ├── database/           # tablas de SQLAlchemy y los repositorios que las usan
     ├── redis/              # contador de intentos y revocación de sesiones
-    ├── email/              # en desarrollo escribe el link en el log
+    ├── email/              # Resend, y el adaptador de consola para desarrollo y tests
     └── health.py           # consulta real a PostgreSQL y a Redis
 tests/
 ├── unit/                   # sin dependencias externas, con dobles de las interfaces

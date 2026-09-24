@@ -126,8 +126,7 @@ async def test_e1_h5_ca1_the_mail_carries_the_token_and_the_table_only_its_diges
 
     await service.forgot_password("alumno@udesa.edu.ar")
 
-    sent_url = doubles["email_sender"].send_password_reset.await_args.kwargs["reset_url"]
-    raw_token = sent_url.split("token=")[1]
+    raw_token = doubles["email_sender"].send_password_reset.await_args.kwargs["token"]
     stored = doubles["reset_tokens"].add.await_args.args[0]
     assert stored.token_hash == hash_token(raw_token)
 
