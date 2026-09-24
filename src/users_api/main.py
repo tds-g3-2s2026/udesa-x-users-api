@@ -1,5 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     await app.state.redis.aclose()
 
 
-app = FastAPI(title="UdeSA-X Users API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="UdeSA-X Users API", version=version("users-api"), lifespan=lifespan)
 
 # Middleware has to be in place before the first request builds the stack, so
 # the origins are read here and not in the lifespan. Only the backoffice runs in
