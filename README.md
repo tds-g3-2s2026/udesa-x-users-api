@@ -79,7 +79,8 @@ por día y 3.000 por mes.
 
 En desarrollo y en los tests se usa el adaptador de consola: los tests de integración leen el
 token del log, y así ninguna corrida manda correo de verdad. Para probar la entrega real en
-local, poné la clave en un `.env` en la raíz del repo, que no se versiona:
+local, poné la clave en un `.env` en la raíz del repo, que no se versiona y que el compose de
+desarrollo le pasa al servicio:
 
 ```bash
 EMAIL_PROVIDER=resend

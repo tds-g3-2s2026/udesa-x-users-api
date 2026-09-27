@@ -7,6 +7,11 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
+    # The image leaves .env out, so this is how a local Resend key reaches the
+    # service. Without the file it keeps the console mailer.
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
