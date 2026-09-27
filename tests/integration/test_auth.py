@@ -209,7 +209,7 @@ async def test_e1_h3_ca1_token_is_revoked_on_logout(api):
 async def test_errors_follow_the_problem_details_format(api):
     response = await api.login(identifier="nadie@udesa.edu.ar", password="Incorrecta1")
 
-    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.headers["content-type"] == "application/problem+json; charset=utf-8"
     body = response.json()
     assert set(body) >= {"type", "title", "status", "detail", "traceId", "instance"}
     assert body["status"] == 401
