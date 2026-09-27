@@ -148,17 +148,37 @@ async def test_e1_h1_ca6_refuses_an_expired_link(service, doubles):
     doubles["users"].update.assert_not_awaited()
 
 
-async def test_e1_h1_ca6_refuses_a_link_already_used(service, doubles):
+async def test_e1_h1_ca6_refuses_a_used_link_whose_account_is_not_verified(service, doubles):
+    user = build_user(is_email_verified=False)
     doubles["verification_tokens"].find_by_hash.return_value = EmailVerificationToken(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user.id,
         token_hash="cualquiera",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         used_at=datetime.now(UTC),
     )
+    doubles["users"].get.return_value = user
 
     with pytest.raises(ProblemError):
         await service.verify_email("un-token")
+
+
+async def test_e1_h1_ca1_reopening_the_link_of_a_verified_account_still_succeeds(service, doubles):
+    user = build_user(is_email_verified=True)
+    doubles["verification_tokens"].find_by_hash.return_value = EmailVerificationToken(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        token_hash="cualquiera",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+        used_at=datetime.now(UTC),
+    )
+    doubles["users"].get.return_value = user
+
+    verified = await service.verify_email("un-token")
+
+    assert verified is user
+    doubles["verification_tokens"].mark_used.assert_not_awaited()
+    doubles["users"].update.assert_not_awaited()
 
 
 async def test_e1_h1_ca1_a_valid_link_verifies_the_account_and_burns_the_token(service, doubles):

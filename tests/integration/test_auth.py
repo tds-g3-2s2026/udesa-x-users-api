@@ -75,14 +75,6 @@ async def test_e1_h1_ca6_expired_token_is_refused_and_can_be_resent(api):
     assert (await api.login()).status_code == 200
 
 
-async def test_e1_h1_ca6_token_cannot_be_reused(api):
-    await api.register()
-    token = api.last_emailed_token()
-
-    assert (await api.client.post("/auth/verify", json={"token": token})).status_code == 200
-    assert (await api.client.post("/auth/verify", json={"token": token})).status_code == 400
-
-
 async def test_e1_h1_ca7_email_uniqueness_is_case_insensitive(api):
     assert (await api.register(email="Alumno@udesa.edu.ar")).status_code == 201
     clash = await api.register(email="alumno@udesa.edu.ar", handle="@otro_handle")
@@ -238,10 +230,11 @@ async def test_e1_h1_ca1_opening_the_emailed_link_verifies_the_account(api):
     assert (await api.login()).status_code == 200
 
 
-async def test_e1_h1_ca6_the_emailed_link_cannot_be_opened_twice(api):
+async def test_e1_h1_ca1_reopening_the_emailed_link_still_reports_the_account_verified(api):
     await api.register()
     await api.open_last_emailed_link()
 
     response = await api.open_last_emailed_link()
 
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert response.json()["status"] == "verified"
