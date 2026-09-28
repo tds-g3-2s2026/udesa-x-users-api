@@ -25,7 +25,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 
 | Método y ruta | Qué hace |
 |---|---|
-| `GET /healthcheck` | Verifica PostgreSQL y Redis |
+| `GET /healthcheck` | Verifica PostgreSQL y Redis e informa la versión desplegada |
 | `POST /auth/register` | Crea la cuenta y envía el link de verificación |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
 | `GET /auth/verify?token=` | Lo mismo, para el link del correo: un cliente de correo solo puede abrirlo con `GET` |
