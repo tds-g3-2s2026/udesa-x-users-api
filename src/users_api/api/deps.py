@@ -9,13 +9,14 @@ The connections themselves are opened once in the lifespan and read from
 `app.state`, so a feature never reaches in there by hand.
 """
 
+import hmac
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -210,3 +211,26 @@ async def require_superadmin(user: CurrentUserDep) -> User:
 
 
 SuperadminDep = Annotated[User, Depends(require_superadmin)]
+
+
+async def require_internal_token(
+    settings: SettingsDep,
+    token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
+) -> None:
+    """Let through only another service of the system (ADR-011).
+
+    The routes under `/internal` are already out of the gateway's reach; this
+    is so their safety does not rest on the gateway and the NetworkPolicy being
+    right. Compared in constant time, so the answer time does not reveal how
+    much of a guess matched. A missing header gets the same 401 as a wrong one
+    and not a 422, so it does not tell the caller what the route expects.
+    """
+    if token is None or not hmac.compare_digest(
+        token.encode(), settings.internal_api_token.encode()
+    ):
+        raise ProblemError(
+            status=401,
+            code="invalid-internal-token",
+            title="No se pudo autenticar la solicitud",
+            detail="Falta el token interno o no es válido",
+        )

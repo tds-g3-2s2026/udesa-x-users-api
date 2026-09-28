@@ -60,6 +60,14 @@ class Api:
     async def list_administrators(self, token: str):
         return await self.client.get("/admin/users", headers={"Authorization": f"Bearer {token}"})
 
+    async def put_under_review(self, user_id: str, internal_token: str | None = None):
+        """Call the internal route the way posts-api does, outside `/api`."""
+        headers = {} if internal_token is None else {"X-Internal-Token": internal_token}
+        # An absolute URL so the client does not add the /api prefix.
+        return await self.client.post(
+            f"http://test/internal/users/{user_id}/review", headers=headers
+        )
+
     async def logout(self, token: str):
         return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
 

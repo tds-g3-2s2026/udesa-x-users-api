@@ -7,6 +7,10 @@ import pytest
 # the unit tests still run on any machine.
 HAS_SERVICES = bool(os.getenv("DATABASE_URL") and os.getenv("REDIS_URL"))
 
+# Required by Settings, with no default. A fixed value so the tests of the
+# internal routes know what to send; CI and the compose may set their own.
+os.environ.setdefault("INTERNAL_API_TOKEN", "test-internal-token")
+
 
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:

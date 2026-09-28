@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    # Shared with the other services that call the routes under `/internal`,
+    # which sits outside `/api` and is never exposed by the gateway. No default
+    # either: without it nobody could call those routes, and with an empty one
+    # anybody inside the cluster could (ADR-011).
+    internal_api_token: str
+
     # Ed25519 private key in PEM format. When absent, the service generates an
     # ephemeral pair at startup so development needs no setup. Tokens then stop
     # being valid across restarts, which is fine locally and unacceptable in
