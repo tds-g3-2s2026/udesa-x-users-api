@@ -43,6 +43,13 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
 | `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
+| `POST /internal/users/{id}/review` | Pone la cuenta en revisión y revoca todas sus sesiones. Fuera de `/api`, así que el gateway no la expone: la llama `posts-api` por la red del cluster ([ADR-011](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-011-denuncias-y-cuenta-en-revision.md)). Exige el header `X-Internal-Token`; sin él o con otro valor responde `401`. Llamarla de nuevo responde `204` y no cambia nada |
+
+Una cuenta en revisión no puede iniciar sesión: el login responde `403` con el código
+`account-under-review` y un mensaje propio, distinto del de `account-suspended`. Los tokens que ya
+tenía dejan de servir en `users-api` al instante. `posts-api` no ve esa revocación y los acepta
+hasta que vencen, como máximo `ACCESS_TOKEN_MINUTES`. Salir de revisión le toca al backoffice
+(`E5-H7`). Una cuenta suspendida no pasa a revisión: la decisión del administrador pesa más.
 
 En desarrollo el correo no se envía: el adaptador de consola escribe el link en el log (ver
 [Correo](#correo) para mandarlo de verdad). Se lo saca así:
@@ -55,7 +62,10 @@ La documentación interactiva queda en `http://localhost:8000/docs`.
 
 ## Configuración
 
-Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL`:
+Variables de entorno que lee el servicio, además de `DATABASE_URL`, `REDIS_URL` e
+`INTERNAL_API_TOKEN`. Las tres son obligatorias: sin ellas el servicio no arranca.
+`INTERNAL_API_TOKEN` es el secreto que comparte con `posts-api` para las rutas de `/internal`, y
+tiene que tener el mismo valor en los dos servicios.
 
 | Variable | Default | Para qué |
 |---|---|---|
@@ -113,10 +123,10 @@ el README de `udesa-x-platform`, sección "Despliegue continuo".
 
 Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
 `DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
-`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos) y
-`RESEND_API_KEY`. Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus
+`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos),
+`RESEND_API_KEY` e `INTERNAL_API_TOKEN`. Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus
 valores. El pipeline arma el Secret real con los GitHub Secrets `DATABASE_URL`, `REDIS_URL`,
-`JWT_PRIVATE_KEY` y `RESEND_API_KEY`; este último es de la organización, para que otro
+`JWT_PRIVATE_KEY`, `INTERNAL_API_TOKEN` y `RESEND_API_KEY`; este último es de la organización, para que otro
 servicio pueda usar la misma clave. El ConfigMap fija `EMAIL_PROVIDER=resend`, así que sin
 `RESEND_API_KEY` el pipeline corta antes de tocar el cluster. `envFrom` inyecta las
 variables al crear el contenedor: el pipeline pone el hash del ConfigMap y del Secret en el
@@ -177,208 +187,10 @@ compose; en producción es un job aparte del pipeline de despliegue.
 uv run alembic upgrade head          # aplicar
 ```
 
-**Una sola migración mientras no haya un deploy real** (`migrations/versions/0001_esquema_actual.py`).
-Sin una base con datos vivos no hay nada que una migración incremental esté protegiendo, así que
-un cambio de esquema se edita en ese mismo archivo en vez de sumar una `0002_...` nueva. El día
-que exista un primer deploy, esa migración pasa a ser la base fija y ahí sí arrancan las
-incrementales con `alembic revision --autogenerate`.
-
-## Probar el flujo completo a mano
-
-Levantá el stack y **dejá esa terminal abierta**: ahí aparece el link de verificación, que es
-lo que iría por correo.
-
-```bash
-docker compose -f docker/docker-compose.dev.yml down -v
-docker compose -f docker/docker-compose.dev.yml up --build
-```
-
-Los comandos que siguen van en otra terminal. Están en PowerShell porque es lo que usa el
-equipo; en bash se escriben igual sin las contrabarras.
-
-### 1. Registrarse
-
-```powershell
-curl.exe -X POST http://localhost:8000/auth/register -H "Content-Type: application/json" -d '{\"email\":\"Alumno@udesa.edu.ar\",\"handle\":\"@alumno_01\",\"password\":\"Contrasena1\",\"terms_accepted\":true}'
-```
-
-```json
-{"id":"6a0e1bc0-...","email":"alumno@udesa.edu.ar","handle":"@alumno_01"}
-```
-
-El email se guardó en minúsculas aunque se mandó con mayúscula: es `E1-H1 CA.7`.
-
-En la terminal del compose aparece el correo:
-
-```
-INFO users_api.infrastructure.email.console | Correo de verificación para alumno@udesa.edu.ar.
-Link válido por tiempo limitado: http://localhost:8000/auth/verify?token=P0oIiKeSRxIN...
-```
-
-### 2. Intentar entrar sin validar la cuenta
-
-```powershell
-curl.exe -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Contrasena1\"}'
-```
-
-```json
-{"status":403,"detail":"Revisá tu casilla de correo para validar la cuenta antes de ingresar", ...}
-```
-
-`E1-H1 CA.1` y `E1-H2 CA.4`. Notar que el mensaje es específico: las credenciales eran
-correctas, así que quien pregunta ya demostró ser el dueño de la cuenta.
-
-### 3. Validar la cuenta
-
-El JSON va por archivo porque PowerShell rompe las comillas anidadas.
-
-```powershell
-$log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
-$tok = [regex]::Match($log, 'token=([\w\-]+)').Groups[1].Value
-'{"token":"' + $tok + '"}' | Set-Content "$env:TEMP\token.json" -Encoding utf8 -NoNewline
-curl.exe -X POST http://localhost:8000/auth/verify -H "Content-Type: application/json" --data "@$env:TEMP\token.json"
-```
-
-```json
-{"status":"verified","handle":"@alumno_01"}
-```
-
-Repetir el mismo comando devuelve `400`: el token es de un solo uso.
-
-### 4. Entrar, con el email en mayúsculas
-
-```powershell
-curl.exe -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"ALUMNO@UDESA.EDU.AR\",\"password\":\"Contrasena1\"}'
-```
-
-```json
-{"access_token":"eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...","token_type":"bearer","expires_in":900}
-```
-
-`expires_in` son los 15 minutos de `E1-H2 CA.1`. Pegando el token en
-[jwt.io](https://jwt.io) se ven `alg: EdDSA` y los claims `sub`, `role` y `jti`.
-
-También funciona entrando con el handle en lugar del email.
-
-### 5. Bloqueo por intentos fallidos
-
-```powershell
-foreach ($i in 1..6) { curl.exe -s -o NUL -w "intento $i -> %{http_code}`n" -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Mala1234\"}' }
-```
-
-```
-intento 1 -> 401
-intento 2 -> 401
-intento 3 -> 401
-intento 4 -> 401
-intento 5 -> 401
-intento 6 -> 429
-```
-
-`E1-H2 CA.2`. A partir del sexto, **la contraseña correcta tampoco entra**: devuelve `429`
-hasta que pasen los 15 minutos. La clave en Redis tiene TTL, así que el desbloqueo es
-automático.
-
-### 6. Cerrar sesión
-
-Repetí el paso 4 para conseguir un token nuevo (el de más arriba ya gastó intentos en el paso
-anterior) y guardalo en una variable:
-
-```powershell
-$body = curl.exe -s -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\",\"password\":\"Contrasena1\"}' | ConvertFrom-Json
-$token = $body.access_token
-
-curl.exe -s -o NUL -w "%{http_code}`n" -X POST http://localhost:8000/auth/logout -H "Authorization: Bearer $token"
-```
-
-```
-204
-```
-
-`E1-H3 CA.1`. El token queda revocado en Redis con el mismo tiempo de vida que le quedaba:
-
-```powershell
-docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:*"
-```
-
-### 7. Recuperar la contraseña olvidada
-
-```powershell
-curl.exe -X POST http://localhost:8000/auth/forgot-password -H "Content-Type: application/json" -d '{\"identifier\":\"alumno@udesa.edu.ar\"}'
-```
-
-```json
-{"status":"accepted"}
-```
-
-`E1-H5 CA.4`. La respuesta es esta misma para una dirección que no existe: probá con
-`nadie@udesa.edu.ar` y comparala. En la terminal del compose aparece el código, que dura diez
-minutos y no veinticuatro horas como el de validación (`E1-H5 CA.1`):
-
-```
-INFO users_api.infrastructure.email.console | Correo de recuperación para alumno@udesa.edu.ar.
-Código válido por tiempo limitado: VMT1tI_Hy7...
-```
-
-Con ese código se cambia la contraseña: es lo que el usuario pega en la app. La confirmación va aparte y tiene que coincidir
-(`E1-H5 CA.3`):
-
-```powershell
-$log = docker compose -f docker/docker-compose.dev.yml logs users-api | Out-String
-$tok = [regex]::Match($log, 'Código válido por tiempo limitado: ([\w\-]+)').Groups[1].Value
-'{"token":"' + $tok + '","password":"Contrasena2","password_confirmation":"Contrasena2"}' | Set-Content "$env:TEMP\reset.json" -Encoding utf8 -NoNewline
-curl.exe -X POST http://localhost:8000/auth/reset-password -H "Content-Type: application/json" --data "@$env:TEMP\reset.json"
-```
-
-```json
-{"status":"reset","handle":"@alumno_01"}
-```
-
-Repetir el mismo comando devuelve `400`: el link es de un solo uso (`E1-H5 CA.5`). Reintentar
-con la contraseña vieja, `Contrasena1`, también da `400`, porque la nueva tiene que ser distinta
-(`E1-H5 CA.6`). Y todas las sesiones que estaban abiertas quedaron revocadas de una (`E1-H5
-CA.7`):
-
-```powershell
-docker compose -f docker/docker-compose.dev.yml exec redis redis-cli keys "revoked:user:*"
-```
-
-Pedir más de tres links en una hora para el mismo identificador devuelve `429` (`E1-H5 CA.8`).
-
-### 8. Entrar al backoffice como superadmin
-
-El superadmin sembrado por el compose entra por la puerta del backoffice y el token lleva su rol:
-
-```powershell
-curl.exe -X POST http://localhost:8000/admin/auth/login -H "Content-Type: application/json" -d '{\"email\":\"admin@udesa.edu.ar\",\"password\":\"Admin1234\"}'
-```
-
-El usuario del paso 1 tiene la contraseña correcta pero no el rol, así que recibe `403` con
-`type` terminado en `/not-an-administrator` (`E5-H2 CA.2`). Tres contraseñas equivocadas seguidas
-bloquean esta puerta por 30 minutos con `429` y `Retry-After: 1800` (`E5-H2 CA.3`); el login de
-la app del mismo usuario no se entera, porque cada puerta lleva su contador.
-
-### 9. Crear un administrador desde el panel
-
-Con el token del paso anterior, el superadmin da de alta a una moderadora. La respuesta trae la
-contraseña temporal, y es la única vez que se puede leer:
-
-```powershell
-curl.exe -X POST http://localhost:8000/admin/users -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d '{\"email\":\"moderadora@udesa.edu.ar\",\"handle\":\"@moderadora\",\"role\":\"moderator\"}'
-```
-
-Esa cuenta entra al backoffice con la temporal y el login le contesta `must_change_password: true`.
-Mientras esa bandera esté prendida su sesión solo sirve para `POST /me/change-password` y para
-cerrarse: cualquier otra ruta devuelve `403` con `type` terminado en `/password-change-required`
-(`E5-H1 CA.1`). Un moderador que intente crear administradores recibe `403` con
-`/superadmin-required` (`E5-H1 CA.2`).
-
-Pasadas 24 horas sin usarla, la temporal deja de servir y el superadmin genera otra con
-`POST /admin/users/{id}/reset-temporary-password` (`E5-H1 CA.3`). Con
-`ADMINISTRATOR_EMAIL_DOMAIN=udesa.edu.ar` en el compose, un alta con una dirección de otro
-dominio se rechaza con `400` y `/email-domain-not-allowed` (`E5-H1 CA.4`).
-
-Para terminar: `docker compose -f docker/docker-compose.dev.yml down`
+**Incrementales desde el primer deploy.** Mientras no hubo una base con datos vivos, los cambios
+de esquema se editaban en `0001_esquema_actual.py`. Con el servicio desplegado, esa migración
+quedó como base fija y cada cambio suma una nueva, como `0002_estado_de_cuenta.py`. Editar una
+migración ya aplicada no llega a la base de producción: Alembic la da por corrida.
 
 ## Correr los tests
 
@@ -456,6 +268,7 @@ src/users_api/
 │   ├── password_change.py  # cambio de contraseña sabiendo la actual
 │   ├── profile.py          # lectura y edición del propio perfil
 │   ├── preferences.py      # visibilidad del perfil e idioma del feed
+│   ├── internal.py         # rutas que solo llaman los otros servicios, fuera de /api
 │   ├── health.py           # verificación de dependencias
 │   ├── deps.py             # qué implementación recibe cada interfaz, y la autenticación
 │   ├── errors.py           # traduce los errores al formato RFC 9457
