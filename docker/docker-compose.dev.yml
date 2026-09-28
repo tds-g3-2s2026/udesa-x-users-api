@@ -15,7 +15,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
-      PUBLIC_BASE_URL: http://localhost:8000/api
+      PUBLIC_BASE_URL: http://localhost:8000
       # First superadmin credentials, development only. Production gets them
       # through GitHub Secrets. The seed does nothing when the account already exists.
       SUPERADMIN_EMAIL: admin@udesa.edu.ar

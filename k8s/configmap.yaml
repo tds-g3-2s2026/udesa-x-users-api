@@ -5,7 +5,7 @@ metadata:
   namespace: tds-group-3
 data:
   LOG_LEVEL: "INFO"
-  PUBLIC_BASE_URL: "https://tds-group-3.tds-linar.udesa.edu.ar/api"
+  PUBLIC_BASE_URL: "https://tds-group-3.tds-linar.udesa.edu.ar"
   JWT_ISSUER: "users-api"
   EMAIL_PROVIDER: "resend"
   # asyncpg con ssl=verify-full busca ~/.postgresql/root.crt, no el almacén del

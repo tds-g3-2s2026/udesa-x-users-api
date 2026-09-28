@@ -117,6 +117,19 @@ async def test_e1_h1_ca1_the_account_starts_unverified(service, doubles):
     assert user.is_email_verified is False
 
 
+async def test_the_link_carries_the_api_prefix_exactly_once(doubles, signing_key):
+    doubles["rate_limiter"].count.return_value = 0
+    doubles["users"].add.side_effect = lambda user: user
+    settings = build_settings(public_base_url="https://tds-group-3.tds-linar.udesa.edu.ar")
+    service = AuthService(settings=settings, signing_key=signing_key, **doubles)
+
+    await service.register(email="alumno@udesa.edu.ar", handle="@alumno_01", password=PASSWORD)
+
+    sent_url = doubles["email_sender"].send_verification.await_args.kwargs["verification_url"]
+    # The base is the bare host: the prefix is added once, from API_PREFIX.
+    assert sent_url.startswith("https://tds-group-3.tds-linar.udesa.edu.ar/api/auth/verify?token=")
+
+
 async def test_e1_h1_ca6_sends_a_link_whose_digest_is_what_gets_stored(service, doubles):
     doubles["users"].add.side_effect = lambda user: user
 

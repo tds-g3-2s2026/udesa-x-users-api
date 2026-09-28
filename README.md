@@ -62,7 +62,7 @@ Variables de entorno que lee el servicio, además de `DATABASE_URL` y `REDIS_URL
 | `JWT_PRIVATE_KEY` | efímera | Clave Ed25519 en PEM. Sin definir, se genera una por arranque |
 | `JWT_ISSUER` | `users-api` | Emisor incluido en el claim `iss` de los tokens |
 | `LOG_LEVEL` | `INFO` | Nivel de log |
-| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo; en el cluster incluye `/api` |
+| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo: el host solo, sin `/api` |
 | `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
 | `ADMIN_LOGIN_MAX_ATTEMPTS` / `ADMIN_LOGIN_LOCKOUT_MINUTES` | `3` / `30` | Bloqueo del login del backoffice. Contador independiente del de la app |
@@ -129,8 +129,8 @@ se incluyen Jobs en `k8s/` ni se aplica esa carpeta entera, que incluye la plant
 La siembra del superadmin (`python -m users_api.seed_superadmin`) todavía no está en el
 pipeline: se corre una vez en el primer despliegue.
 
-`PUBLIC_BASE_URL` usa el host del Ingress con `/api`, porque la aplicación agrega
-`/auth/verify` al construir el link. `JWT_ISSUER` (`users-api`) configura el claim `iss`
+`PUBLIC_BASE_URL` es el host público solo, sin `/api`: la aplicación agrega
+`/api/auth/verify` al construir el link, con el mismo `API_PREFIX` que usan las rutas. `JWT_ISSUER` (`users-api`) configura el claim `iss`
 de los tokens emitidos y es validado estrictamente al verificar la firma de tokens recibidos.
 Los tokens anteriores sin `iss` dejan de ser válidos; hay que iniciar sesión de nuevo.
 La privada debe ser estable en producción y posts debe recibir su pública correspondiente.
