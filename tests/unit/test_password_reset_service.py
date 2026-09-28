@@ -9,7 +9,7 @@ import pytest
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import PasswordResetToken
-from users_api.app.models.user import User
+from users_api.app.models.user import AccountStatus, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import PasswordResetTokenRepository
@@ -95,7 +95,7 @@ async def test_e1_h5_ca8_the_request_is_counted_even_for_addresses_that_do_not_e
     ("user", "reason"),
     [
         (None, "la cuenta no existe"),
-        (build_user(is_suspended=True), "esta suspendida"),
+        (build_user(status=AccountStatus.SUSPENDED), "esta suspendida"),
     ],
 )
 async def test_e1_h5_ca4_nothing_is_sent_and_nothing_is_revealed(service, doubles, user, reason):

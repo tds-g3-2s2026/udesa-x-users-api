@@ -16,7 +16,13 @@ from dataclasses import dataclass
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.app.models.user import FeedLanguage, ProfileVisibility, Role, User
+from users_api.app.models.user import (
+    AccountStatus,
+    FeedLanguage,
+    ProfileVisibility,
+    Role,
+    User,
+)
 from users_api.app.repositories.users import UserRepository
 from users_api.infrastructure.database.models import UserModel
 
@@ -31,7 +37,7 @@ def to_domain(row: UserModel) -> User:
         must_change_password=row.must_change_password,
         temporary_password_expires_at=row.temporary_password_expires_at,
         is_email_verified=row.is_email_verified,
-        is_suspended=row.is_suspended,
+        status=AccountStatus(row.status),
         deleted_at=row.deleted_at,
         terms_accepted=row.terms_accepted,
         terms_accepted_at=row.terms_accepted_at,
@@ -56,7 +62,7 @@ class SqlAlchemyUserRepository(UserRepository):
             must_change_password=user.must_change_password,
             temporary_password_expires_at=user.temporary_password_expires_at,
             is_email_verified=user.is_email_verified,
-            is_suspended=user.is_suspended,
+            status=user.status.value,
             deleted_at=user.deleted_at,
             terms_accepted=user.terms_accepted,
             terms_accepted_at=user.terms_accepted_at,
@@ -110,7 +116,7 @@ class SqlAlchemyUserRepository(UserRepository):
         row.must_change_password = user.must_change_password
         row.temporary_password_expires_at = user.temporary_password_expires_at
         row.is_email_verified = user.is_email_verified
-        row.is_suspended = user.is_suspended
+        row.status = user.status.value
         row.deleted_at = user.deleted_at
         row.display_name = user.display_name
         row.bio = user.bio

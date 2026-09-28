@@ -6,7 +6,7 @@ import jwt
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken
-from users_api.app.models.user import User
+from users_api.app.models.user import AccountStatus, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import EmailVerificationTokenRepository
@@ -25,12 +25,43 @@ from users_api.config.settings import API_PREFIX, Settings
 # never tells an attacker which accounts exist.
 INVALID_CREDENTIALS = "Credenciales inválidas"
 SUSPENDED_ACCOUNT = "Cuenta suspendida"
+UNDER_REVIEW_ACCOUNT = (
+    "Tu cuenta está en revisión por denuncias de otros usuarios. "
+    "Mientras dure la revisión no podés iniciar sesión"
+)
 UNVERIFIED_ACCOUNT = "Revisá tu casilla de correo para validar la cuenta antes de ingresar"
 INVALID_TOKEN = "El token no es válido"
 NOT_AN_ADMINISTRATOR = "Esta cuenta no tiene acceso al backoffice"
 EXPIRED_TEMPORARY_PASSWORD = (
     "La contraseña temporal venció. Pedile al superadministrador que genere una nueva"
 )
+
+
+def deny_blocked_account(user: User, *, title: str) -> None:
+    """Refuse an account that may not be used, saying why.
+
+    Shared by both logins and by every authenticated request, so a state that
+    blocks the login also ends the sessions already open, with the same words.
+    Suspension wins over review: a deleted account says suspended whatever its
+    status, as CA.5 of E1-H2 asks.
+    """
+    if user.can_log_in:
+        return
+    if user.status is AccountStatus.UNDER_REVIEW and user.deleted_at is None:
+        # Its own code, so the app can tell the owner the account is waiting
+        # for a person to look at it and not closed for good.
+        raise ProblemError(
+            status=403,
+            code="account-under-review",
+            title=title,
+            detail=UNDER_REVIEW_ACCOUNT,
+        )
+    raise ProblemError(
+        status=403,
+        code="account-suspended",
+        title=title,
+        detail=SUSPENDED_ACCOUNT,
+    )
 
 
 @dataclass(frozen=True)
@@ -189,13 +220,7 @@ class AuthService:
         # Only now, with the password proven, is the account state revealed. The
         # caller already showed they own the account, so these messages can be
         # specific without becoming an enumeration vector.
-        if not user.can_log_in:
-            raise ProblemError(
-                status=403,
-                code="account-suspended",
-                title="No se pudo iniciar sesión",
-                detail=SUSPENDED_ACCOUNT,
-            )
+        deny_blocked_account(user, title="No se pudo iniciar sesión")
 
         if not user.is_email_verified:
             raise ProblemError(
@@ -245,13 +270,7 @@ class AuthService:
                 detail=NOT_AN_ADMINISTRATOR,
             )
 
-        if not user.can_log_in:
-            raise ProblemError(
-                status=403,
-                code="account-suspended",
-                title="No se pudo iniciar sesión",
-                detail=SUSPENDED_ACCOUNT,
-            )
+        deny_blocked_account(user, title="No se pudo iniciar sesión")
 
         self.deny_expired_temporary_password(user)
 

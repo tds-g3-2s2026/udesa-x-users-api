@@ -30,6 +30,7 @@ from users_api.app.repositories.tokens import (
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import decode_access_token
+from users_api.app.services.auth import SUSPENDED_ACCOUNT, deny_blocked_account
 from users_api.config.settings import API_PREFIX, Settings
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
@@ -162,15 +163,16 @@ async def get_current_user(
         )
 
     user = await users.get(user_id)
-    if user is None or not user.can_log_in:
-        # A token outlives a suspension, so the state of the account is checked
-        # on every request and not only when it is handed out.
+    if user is None:
         raise ProblemError(
             status=403,
             code="account-suspended",
             title="No se pudo autenticar la solicitud",
-            detail="Cuenta suspendida",
+            detail=SUSPENDED_ACCOUNT,
         )
+    # A token outlives a suspension or a review, so the state of the account is
+    # checked on every request and not only when it is handed out.
+    deny_blocked_account(user, title="No se pudo autenticar la solicitud")
 
     if (
         user.must_change_password
