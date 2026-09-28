@@ -161,7 +161,7 @@ async def test_e1_h2_ca4_correct_credentials_on_unverified_account_point_to_the_
 
 async def test_e1_h2_ca5_suspended_account_is_refused(api):
     await api.register_and_verify()
-    await set_user_flag(api.app, "is_suspended", True)
+    await set_user_flag(api.app, "status", "suspended")
 
     response = await api.login()
     assert response.status_code == 403
@@ -179,13 +179,24 @@ async def test_e1_h2_ca5_soft_deleted_account_is_refused(api):
 
 async def test_e1_h2_ca5_suspension_is_not_revealed_without_the_password(api):
     await api.register_and_verify()
-    await set_user_flag(api.app, "is_suspended", True)
+    await set_user_flag(api.app, "status", "suspended")
 
     # Wrong password on a suspended account still gets the generic message: the
     # caller has not proven they own it.
     response = await api.login(password="Incorrecta1")
     assert response.status_code == 401
     assert response.json()["detail"] == "Credenciales inválidas"
+
+
+async def test_e1_h2_ca5_a_token_outliving_its_account_is_refused(api):
+    await api.register_and_verify()
+    token = (await api.login()).json()["access_token"]
+    async with api.app.state.engine.begin() as connection:
+        await connection.execute(text("DELETE FROM users"))
+
+    response = await api.get_profile(token)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Cuenta suspendida"
 
 
 async def test_e1_h3_ca1_token_is_revoked_on_logout(api):

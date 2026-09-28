@@ -9,13 +9,14 @@ The connections themselves are opened once in the lifespan and read from
 `app.state`, so a feature never reaches in there by hand.
 """
 
+import hmac
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, Request
+from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,6 +31,7 @@ from users_api.app.repositories.tokens import (
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import decode_access_token
+from users_api.app.services.auth import SUSPENDED_ACCOUNT, deny_blocked_account
 from users_api.config.settings import API_PREFIX, Settings
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
@@ -162,15 +164,16 @@ async def get_current_user(
         )
 
     user = await users.get(user_id)
-    if user is None or not user.can_log_in:
-        # A token outlives a suspension, so the state of the account is checked
-        # on every request and not only when it is handed out.
+    if user is None:
         raise ProblemError(
             status=403,
             code="account-suspended",
             title="No se pudo autenticar la solicitud",
-            detail="Cuenta suspendida",
+            detail=SUSPENDED_ACCOUNT,
         )
+    # A token outlives a suspension or a review, so the state of the account is
+    # checked on every request and not only when it is handed out.
+    deny_blocked_account(user, title="No se pudo autenticar la solicitud")
 
     if (
         user.must_change_password
@@ -208,3 +211,26 @@ async def require_superadmin(user: CurrentUserDep) -> User:
 
 
 SuperadminDep = Annotated[User, Depends(require_superadmin)]
+
+
+async def require_internal_token(
+    settings: SettingsDep,
+    token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
+) -> None:
+    """Let through only another service of the system (ADR-011).
+
+    The routes under `/internal` are already out of the gateway's reach; this
+    is so their safety does not rest on the gateway and the NetworkPolicy being
+    right. Compared in constant time, so the answer time does not reveal how
+    much of a guess matched. A missing header gets the same 401 as a wrong one
+    and not a 422, so it does not tell the caller what the route expects.
+    """
+    if token is None or not hmac.compare_digest(
+        token.encode(), settings.internal_api_token.encode()
+    ):
+        raise ProblemError(
+            status=401,
+            code="invalid-internal-token",
+            title="No se pudo autenticar la solicitud",
+            detail="Falta el token interno o no es válido",
+        )

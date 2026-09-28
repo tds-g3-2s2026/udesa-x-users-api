@@ -16,7 +16,7 @@ import pytest
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken
-from users_api.app.models.user import Role, User
+from users_api.app.models.user import AccountStatus, Role, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import EmailVerificationTokenRepository
@@ -217,7 +217,7 @@ async def test_e1_h1_ca1_a_valid_link_verifies_the_account_and_burns_the_token(s
     [
         (None, "la cuenta no existe"),
         (build_user(is_email_verified=True), "ya esta validada"),
-        (build_user(is_email_verified=False, is_suspended=True), "esta suspendida"),
+        (build_user(is_email_verified=False, status=AccountStatus.SUSPENDED), "esta suspendida"),
     ],
 )
 async def test_e1_h1_ca6_resending_stays_silent_when_there_is_nothing_to_send(
@@ -270,7 +270,7 @@ async def test_e1_h2_ca2_every_failure_is_counted_even_for_accounts_that_do_not_
 async def test_e1_h2_ca5_a_suspended_account_is_refused_once_the_password_is_proven(
     service, doubles
 ):
-    doubles["users"].find_by_identifier.return_value = build_user(is_suspended=True)
+    doubles["users"].find_by_identifier.return_value = build_user(status=AccountStatus.SUSPENDED)
 
     with pytest.raises(ProblemError) as raised:
         await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
@@ -396,7 +396,9 @@ async def test_e5_h2_ca3_three_failures_do_not_lock_the_app_door(service, double
 async def test_e5_h2_a_suspended_administrator_is_refused_once_the_password_is_proven(
     service, doubles
 ):
-    doubles["users"].find_by_email.return_value = build_user(role=Role.MODERATOR, is_suspended=True)
+    doubles["users"].find_by_email.return_value = build_user(
+        role=Role.MODERATOR, status=AccountStatus.SUSPENDED
+    )
 
     with pytest.raises(ProblemError) as raised:
         await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)

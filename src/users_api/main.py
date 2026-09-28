@@ -16,6 +16,7 @@ from users_api.api.errors import (
     validation_error_handler,
 )
 from users_api.api.health import router as health_router
+from users_api.api.internal import router as internal_router
 from users_api.api.password_change import router as password_change_router
 from users_api.api.password_reset import router as password_reset_router
 from users_api.api.preferences import router as preferences_router
@@ -80,6 +81,10 @@ app.add_exception_handler(RequestValidationError, validation_error_handler)
 # Probes stay out: Kubernetes probes (/healthcheck, /livez) reach the pod
 # directly and never pass through the Ingress.
 app.include_router(health_router)
+
+# Outside the prefix on purpose: the gateway only routes `/api`, so these are
+# reachable only from inside the cluster (ADR-011).
+app.include_router(internal_router)
 
 app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(admin_auth_router, prefix=API_PREFIX)

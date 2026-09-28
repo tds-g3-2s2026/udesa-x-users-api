@@ -26,6 +26,9 @@ class UserModel(Base):
             "profile_visibility IN ('public', 'protected')", name="ck_users_profile_visibility"
         ),
         CheckConstraint("feed_language IN ('es', 'en', 'all')", name="ck_users_feed_language"),
+        CheckConstraint(
+            "status IN ('active', 'suspended', 'under_review')", name="ck_users_status"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -55,7 +58,8 @@ class UserModel(Base):
 
     is_email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Same shape as `role`. The allowed values are the `AccountStatus` enum.
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     terms_accepted: Mapped[bool] = mapped_column(Boolean, default=False)

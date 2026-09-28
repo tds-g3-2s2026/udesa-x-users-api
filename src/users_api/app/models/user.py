@@ -27,6 +27,22 @@ class ProfileVisibility(StrEnum):
     PROTECTED = "protected"
 
 
+class AccountStatus(StrEnum):
+    """Whether the account may be used, and if not, who decided it.
+
+    One column and not a flag per reason: the states exclude each other, and
+    two flags would allow a row that is suspended and under review at once,
+    with nobody able to say which message the owner should see.
+    """
+
+    ACTIVE = "active"
+    # An administrator decided it (E5-H5).
+    SUSPENDED = "suspended"
+    # The system decided it, after reports from enough different users
+    # (E3-H5). It lasts until an administrator reviews the case (E5-H7).
+    UNDER_REVIEW = "under_review"
+
+
 class FeedLanguage(StrEnum):
     """What language the feed's content is shown in.
 
@@ -54,7 +70,7 @@ class User:
     # above is up.
     temporary_password_expires_at: datetime | None = None
     is_email_verified: bool = False
-    is_suspended: bool = False
+    status: AccountStatus = AccountStatus.ACTIVE
     deleted_at: datetime | None = None
     terms_accepted: bool = False
     terms_accepted_at: datetime | None = None
@@ -73,8 +89,8 @@ class User:
 
     @property
     def can_log_in(self) -> bool:
-        """Suspended by an admin and self-deleted deny access the same way."""
-        return not self.is_suspended and self.deleted_at is None
+        """Only an active account that was not deleted gets in."""
+        return self.status is AccountStatus.ACTIVE and self.deleted_at is None
 
     @property
     def is_administrator(self) -> bool:
