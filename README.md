@@ -113,12 +113,14 @@ el README de `udesa-x-platform`, sección "Despliegue continuo".
 
 Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
 `DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
-`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos).
-Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus valores.
-El pipeline arma el Secret real con los GitHub Secrets `DATABASE_URL`, `REDIS_URL` y
-`JWT_PRIVATE_KEY` del repositorio. `envFrom` inyecta las variables al crear el contenedor:
-el pipeline pone el hash del ConfigMap y del Secret en el pod template, así que un cambio
-solo de configuración también reemplaza los pods. Los integrantes conservan acceso de solo
+`JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos) y
+`RESEND_API_KEY`. Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus
+valores. El pipeline arma el Secret real con los GitHub Secrets `DATABASE_URL`, `REDIS_URL`,
+`JWT_PRIVATE_KEY` y `RESEND_API_KEY`; este último es de la organización, para que otro
+servicio pueda usar la misma clave. El ConfigMap fija `EMAIL_PROVIDER=resend`, así que sin
+`RESEND_API_KEY` el pipeline corta antes de tocar el cluster. `envFrom` inyecta las
+variables al crear el contenedor: el pipeline pone el hash del ConfigMap y del Secret en el
+pod template, así que un cambio solo de configuración también reemplaza los pods. Los integrantes conservan acceso de solo
 lectura al cluster.
 
 Las migraciones (`alembic upgrade head`) las corre el pipeline como Job con la misma imagen,
