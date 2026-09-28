@@ -22,6 +22,8 @@ services:
       SUPERADMIN_PASSWORD: Admin1234
       # Local backoffice origins: Vite (5173) and the nginx container (5174).
       CORS_ALLOWED_ORIGINS: '["http://localhost:5173", "http://localhost:5174"]'
+      # Same value as posts-api's compose, so its reports can reach /internal.
+      INTERNAL_API_TOKEN: dev-internal-token
       # JWT_PRIVATE_KEY is left unset on purpose: development mints an ephemeral
       # pair, so no key is ever versioned. Production gets it through a Secret.
     command: >-
@@ -44,6 +46,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
+      INTERNAL_API_TOKEN: test-internal-token
     depends_on:
       postgres:
         condition: service_healthy
