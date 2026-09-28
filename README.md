@@ -105,27 +105,27 @@ requiere un slot adicional de pod y cuota para el surge y los Jobs de migración
 Si no alcanza el margen, esperar o liberar capacidad antes del rollout, sin cambiar
 automáticamente la estrategia para interrumpir el servicio.
 
-La imagen queda parametrizada hasta contar con la URI asignada de ECR. El futuro
-pipeline debe reemplazar `${ECR_IMAGE}` por la URI real inmutable (por ejemplo
-`<account-id>.dkr.ecr.<region>.amazonaws.com/tds-group-3/users-api:<git-sha>`)
-antes de aplicar el Deployment. Kubernetes no expande estas variables.
+Cada push a `main` que pasa el CI despliega solo, con el job `deploy` de
+`.github/workflows/ci.yml`, que llama a `deploy.yml` de `udesa-x-platform`. Ese pipeline
+publica la imagen en ECR y reemplaza `${ECR_IMAGE}` por su referencia por digest antes de
+aplicar el Deployment. Kubernetes no expande estas variables. Qué hace paso por paso está en
+el README de `udesa-x-platform`, sección "Despliegue continuo".
 
 Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
 `DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
 `JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos).
 Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus valores.
-El pipeline debe generar y aplicar el Secret con valores de GitHub Secrets.
-Notar que `envFrom` inyecta las variables en los contenedores al momento de creación:
-si se actualiza el ConfigMap o el Secret, es necesario reemplazar o reiniciar los pods
-(`kubectl rollout restart deployment/users-api -n tds-group-3`, desde el CD) para que tomen
-los nuevos valores. Los integrantes conservan acceso de solo lectura al cluster.
+El pipeline arma el Secret real con los GitHub Secrets `DATABASE_URL`, `REDIS_URL` y
+`JWT_PRIVATE_KEY` del repositorio. `envFrom` inyecta las variables al crear el contenedor:
+el pipeline pone el hash del ConfigMap y del Secret en el pod template, así que un cambio
+solo de configuración también reemplaza los pods. Los integrantes conservan acceso de solo
+lectura al cluster.
 
-En producción, las migraciones de base de datos (`alembic upgrade head`) y la siembra
-del superadmin (`python -m users_api.seed_superadmin`) se ejecutan como tareas/Jobs
-separados previos al despliegue de la API, usando la misma imagen e inyectando
-las credenciales correspondientes. Reservar cupo y cuota para estos Jobs y esperar su
-éxito antes del rollout. El futuro CD es responsable de su ciclo de vida; no se incluyen
-Jobs en `k8s/` ni se permite aplicar indiscriminadamente esa carpeta con secretos vacíos.
+Las migraciones (`alembic upgrade head`) las corre el pipeline como Job con la misma imagen,
+antes del rollout, y si fallan el despliegue se corta con los pods anteriores sirviendo. No
+se incluyen Jobs en `k8s/` ni se aplica esa carpeta entera, que incluye la plantilla vacía.
+La siembra del superadmin (`python -m users_api.seed_superadmin`) todavía no está en el
+pipeline: se corre una vez en el primer despliegue.
 
 `PUBLIC_BASE_URL` usa el host del Ingress con `/api`, porque la aplicación agrega
 `/auth/verify` al construir el link. `JWT_ISSUER` (`users-api`) configura el claim `iss`
@@ -150,15 +150,13 @@ kubectl apply --dry-run=client -f k8s/
 El comando requiere kubectl y un contexto con acceso de lectura al API server
 para consultar descubrimiento y esquemas, aunque no requiere permisos de escritura.
 La validación de la plantilla no acredita que los secretos ni la imagen estén listos.
-Para desplegar, aplicar explícitamente ConfigMap, Secret real, Deployment con imagen
-resuelta y Service, sin incluir `secret.template.yaml`. La aprobación del tutor se
-gestiona en el PR.
+La aprobación del tutor se gestiona en el PR.
 
 ## Primer superadmin
 
 El panel no puede crear al primer administrador porque nadie puede entrar al panel todavía. Se
 siembra con un comando que corre antes de arrancar la API; en desarrollo lo dispara el compose,
-en producción es un job del despliegue, con las credenciales inyectadas desde GitHub Secrets:
+en producción se corre una vez en el primer despliegue, con credenciales de bootstrap propias:
 
 ```bash
 SUPERADMIN_EMAIL=admin@udesa.edu.ar SUPERADMIN_PASSWORD=Admin1234 uv run python -m users_api.seed_superadmin
