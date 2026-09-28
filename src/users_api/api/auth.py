@@ -74,6 +74,13 @@ async def verify(payload: VerifyRequest, service: ServiceDep) -> dict[str, str]:
     return {"status": "verified", "handle": user.handle}
 
 
+@router.get("/verify")
+async def verify_from_link(token: str, service: ServiceDep) -> dict[str, str]:
+    """The emailed link: a mail client can only open it with a GET."""
+    user = await service.verify_email(token)
+    return {"status": "verified", "handle": user.handle}
+
+
 @router.post("/resend-verification", status_code=status.HTTP_202_ACCEPTED)
 async def resend_verification(
     payload: ResendVerificationRequest, service: ServiceDep

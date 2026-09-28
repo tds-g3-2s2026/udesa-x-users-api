@@ -5,6 +5,7 @@ flow drive the app the same way instead of each keeping its own copy.
 """
 
 import re
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
@@ -80,10 +81,10 @@ class Api:
         )
 
     def last_emailed_token(self) -> str:
-        # The console adapter writes the link; this is what the mail would
-        # carry. Verification and reset links are logged the same way, so this
-        # reads whichever went out last.
-        links = re.findall(r"token=([\w\-]+)", self.caplog.text)
+        # The console adapter writes what the mail would carry: the link for a
+        # verification, the bare code for a reset. This reads whichever went
+        # out last.
+        links = re.findall(r"(?:token=|limitado: )([\w\-]+)", self.caplog.text)
         assert links, "no se encontro ningun link en el log"
         return links[-1]
 
@@ -92,6 +93,12 @@ class Api:
         links = re.findall(r"(http://\S+)", self.caplog.text)
         assert links, "no se encontro ningun link en el log"
         return links[-1]
+
+    async def open_last_emailed_link(self):
+        """GET the emailed link, the way a browser opens it from the mail."""
+        link = urlsplit(self.last_emailed_link())
+        # The client's base URL already carries the /api prefix.
+        return await self.client.get(f"{link.path.removeprefix('/api')}?{link.query}")
 
     async def verify_last(self):
         return await self.client.post("/auth/verify", json={"token": self.last_emailed_token()})

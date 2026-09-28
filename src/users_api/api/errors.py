@@ -13,7 +13,9 @@ from fastapi.responses import JSONResponse
 
 from users_api.app.errors import ProblemError
 
-PROBLEM_MEDIA_TYPE = "application/problem+json"
+# Starlette only adds the charset to text/* types, and without it a browser
+# opening an emailed link decodes the accents as Latin-1.
+PROBLEM_MEDIA_TYPE = "application/problem+json; charset=utf-8"
 _TYPE_BASE = "https://udesa-x.dev/errors"
 
 

@@ -120,6 +120,12 @@ class AuthService:
     async def verify_email(self, raw_token: str) -> User:
         now = datetime.now(UTC)
         token = await self.verification_tokens.find_by_hash(hash_token(raw_token))
+        if token is not None and token.used_at is not None:
+            # Mail clients open a link more than once; a link that already
+            # verified its account answers as it did the first time.
+            user = await self.users.get(token.user_id)
+            if user.is_email_verified:
+                return user
         if token is None or not token.is_usable(now):
             # An expired or already used token is refused, and the user is
             # pointed at the resend endpoint.

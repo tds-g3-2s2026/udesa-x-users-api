@@ -15,7 +15,7 @@ from users_api.app.security import (
     hash_token,
     verify_password,
 )
-from users_api.config.settings import API_PREFIX, Settings
+from users_api.config.settings import Settings
 
 RESET_LINK_INVALID = "El link de recuperación es inválido o expiró. Pedí uno nuevo"
 SAME_PASSWORD = "La contraseña nueva tiene que ser distinta de la actual"
@@ -59,10 +59,7 @@ class PasswordResetService:
                 expires_at=now + timedelta(minutes=self.settings.password_reset_minutes),
             )
         )
-        reset_url = (
-            f"{self.settings.public_base_url}{API_PREFIX}/auth/reset-password?token={raw_token}"
-        )
-        await self.email_sender.send_password_reset(to=user.email, reset_url=reset_url)
+        await self.email_sender.send_password_reset(to=user.email, token=raw_token)
 
     async def guard_reset_limit(self, identifier: str) -> None:
         """Cap how many links can be asked for the same identifier.
