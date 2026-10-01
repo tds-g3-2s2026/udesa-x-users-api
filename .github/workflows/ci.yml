@@ -24,5 +24,6 @@ jobs:
       id-token: write
     with:
       servicio: users-api
-      secretos: DATABASE_URL REDIS_URL JWT_PRIVATE_KEY RESEND_API_KEY INTERNAL_API_TOKEN
-      migracion: alembic upgrade head
+      secretos: DATABASE_URL REDIS_URL JWT_PRIVATE_KEY RESEND_API_KEY INTERNAL_API_TOKEN SUPERADMIN_EMAIL SUPERADMIN_PASSWORD
+      # The seed finds the account on every run after the first and does nothing.
+      migracion: alembic upgrade head && python -m users_api.seed_superadmin

@@ -136,8 +136,9 @@ lectura al cluster.
 Las migraciones (`alembic upgrade head`) las corre el pipeline como Job con la misma imagen,
 antes del rollout, y si fallan el despliegue se corta con los pods anteriores sirviendo. No
 se incluyen Jobs en `k8s/` ni se aplica esa carpeta entera, que incluye la plantilla vacía.
-La siembra del superadmin (`python -m users_api.seed_superadmin`) todavía no está en el
-pipeline: se corre una vez en el primer despliegue.
+Después de las migraciones, el mismo Job siembra el superadmin (`python -m users_api.seed_superadmin`)
+con `SUPERADMIN_EMAIL` y `SUPERADMIN_PASSWORD`, que son GitHub Secrets del repo. Corre en cada
+despliegue y desde el segundo no hace nada: encuentra la cuenta.
 
 `PUBLIC_BASE_URL` es el host público solo, sin `/api`: la aplicación agrega
 `/api/auth/verify` al construir el link, con el mismo `API_PREFIX` que usan las rutas. `JWT_ISSUER` (`users-api`) configura el claim `iss`
@@ -168,7 +169,8 @@ La aprobación del tutor se gestiona en el PR.
 
 El panel no puede crear al primer administrador porque nadie puede entrar al panel todavía. Se
 siembra con un comando que corre antes de arrancar la API; en desarrollo lo dispara el compose,
-en producción se corre una vez en el primer despliegue, con credenciales de bootstrap propias:
+en producción lo corre el despliegue después de las migraciones, con credenciales propias cargadas
+como GitHub Secrets. Para correrlo a mano:
 
 ```bash
 SUPERADMIN_EMAIL=admin@udesa.edu.ar SUPERADMIN_PASSWORD=Admin1234 uv run python -m users_api.seed_superadmin
