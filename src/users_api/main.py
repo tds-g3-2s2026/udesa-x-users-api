@@ -5,6 +5,8 @@ from importlib.metadata import version
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -27,6 +29,7 @@ from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
 from users_api.infrastructure.email.console import ConsoleEmailSender
 from users_api.infrastructure.email.resend import ResendEmailSender
+from users_api.infrastructure.telemetry import export, instrument
 
 
 @asynccontextmanager
@@ -43,6 +46,8 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
         force=True,
     )
+    if settings.otel_exporter_otlp_endpoint:
+        export(tracer_provider, OTLPSpanExporter(), OTLPLogExporter())
 
     app.state.settings = settings
     app.state.engine = create_async_engine(settings.database_url, pool_pre_ping=True)
@@ -74,6 +79,8 @@ app.add_middleware(
     # hides the header from the page.
     expose_headers=["Retry-After"],
 )
+
+tracer_provider = instrument(app)
 
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)

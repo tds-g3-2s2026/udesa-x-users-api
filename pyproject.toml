@@ -16,6 +16,10 @@ dependencies = [
     "alembic>=1.14",
     "nh3>=0.3.7",
     "resend[async]>=2.47",
+    "opentelemetry-sdk>=1.45.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.0",
+    "opentelemetry-instrumentation-fastapi>=0.66b0",
+    "opentelemetry-instrumentation-logging>=0.66b0",
 ]
 
 [dependency-groups]

@@ -83,6 +83,10 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    # Telemetry leaves the pod only when this is set. The exporters read it, and
+    # the rest of the OTEL_EXPORTER_OTLP_* variables, on their own.
+    otel_exporter_otlp_endpoint: str | None = None
+
     @model_validator(mode="after")
     def require_provider_key(self) -> "Settings":
         # Refusing to start beats a deployment that silently never sends mail.
