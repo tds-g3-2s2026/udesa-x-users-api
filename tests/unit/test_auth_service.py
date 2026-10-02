@@ -415,6 +415,7 @@ async def test_e1_h3_ca1_logging_out_revokes_the_token_until_it_would_have_expir
         subject=uuid.uuid4(),
         role="user",
         handle="@lector",
+        profile_visibility="public",
         expires_in_minutes=15,
         issuer=service.settings.jwt_issuer,
     )
@@ -435,6 +436,7 @@ async def test_e1_h3_ca1_logging_out_twice_is_not_an_error(service, doubles, sig
         subject=uuid.uuid4(),
         role="user",
         handle="@lector",
+        profile_visibility="public",
         expires_in_minutes=15,
         issuer=service.settings.jwt_issuer,
         now=datetime.now(UTC) - timedelta(hours=1),

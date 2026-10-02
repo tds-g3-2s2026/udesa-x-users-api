@@ -81,6 +81,7 @@ def issue_access_token(
     subject: uuid.UUID,
     role: str,
     handle: str,
+    profile_visibility: str,
     expires_in_minutes: int,
     issuer: str,
     now: datetime | None = None,
@@ -95,6 +96,11 @@ def issue_access_token(
     asking this one. It is safe to copy because a handle is fixed at
     registration and the profile endpoint refuses to change it, so what the
     token carries cannot go stale.
+
+    profile_visibility travels too, unlike the handle it can change at any
+    time, so a service reading it only ever sees the value as of this
+    account's last login — stale until the access token is 15 minutes old at
+    most, until there is an event to carry the change sooner.
     """
     issued_at = now or datetime.now(UTC)
     payload = {
@@ -102,6 +108,7 @@ def issue_access_token(
         "sub": str(subject),
         "role": role,
         "handle": handle,
+        "profile_visibility": profile_visibility,
         "jti": str(uuid.uuid4()),
         "iat": issued_at,
         "exp": issued_at + timedelta(minutes=expires_in_minutes),

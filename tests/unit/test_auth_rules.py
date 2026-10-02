@@ -123,6 +123,7 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
         subject=subject,
         role="user",
         handle="@lector",
+        profile_visibility="protected",
         expires_in_minutes=15,
         issuer="test-users-api",
         now=issued_at,
@@ -142,6 +143,9 @@ def test_e1_h2_ca1_token_carries_subject_role_jti_and_expiry():
     # posts-api lee este claim para poder nombrar una cuenta sin preguntarle a
     # users-api en cada consulta.
     assert claims["handle"] == "@lector"
+    # Same idea as the handle, but mutable: posts-api re-reads it from every
+    # fresh token to keep its own copy up to date.
+    assert claims["profile_visibility"] == "protected"
     assert uuid.UUID(claims["jti"])
     assert claims["exp"] - claims["iat"] == timedelta(minutes=15).total_seconds()
 
@@ -155,6 +159,7 @@ def test_e1_h2_ca1_token_is_signed_with_eddsa_and_not_hs256():
         subject=uuid.uuid4(),
         role="user",
         handle="@lector",
+        profile_visibility="public",
         expires_in_minutes=15,
         issuer="test-users-api",
     )
@@ -168,6 +173,7 @@ def test_e1_h2_ca1_expired_token_is_rejected():
         subject=uuid.uuid4(),
         role="user",
         handle="@lector",
+        profile_visibility="public",
         expires_in_minutes=15,
         issuer="test-users-api",
         now=datetime.now(UTC) - timedelta(hours=1),
@@ -185,6 +191,7 @@ def test_decode_access_token_validates_issuer():
         subject=uuid.uuid4(),
         role="user",
         handle="@lector",
+        profile_visibility="public",
         expires_in_minutes=15,
         issuer="users-api",
     )
