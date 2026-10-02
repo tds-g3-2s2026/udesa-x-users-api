@@ -9,6 +9,8 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
+from users_api.infrastructure.email.console import ConsoleEmailSender
+
 REGISTRATION = {
     "email": "Alumno@udesa.edu.ar",
     "handle": "@alumno_01",
@@ -88,17 +90,26 @@ class Api:
             },
         )
 
+    def _mailed_text(self) -> str:
+        # Only what the console mailer wrote: the test client logs every URL it
+        # calls, and those carry tokens and links too.
+        return "\n".join(
+            record.getMessage()
+            for record in self.caplog.records
+            if record.name == ConsoleEmailSender.__module__
+        )
+
     def last_emailed_token(self) -> str:
         # The console adapter writes what the mail would carry: the link for a
         # verification, the bare code for a reset. This reads whichever went
         # out last.
-        links = re.findall(r"(?:token=|limitado: )([\w\-]+)", self.caplog.text)
+        links = re.findall(r"(?:token=|limitado: )([\w\-]+)", self._mailed_text())
         assert links, "no se encontro ningun link en el log"
         return links[-1]
 
     def last_emailed_link(self) -> str:
         """The whole URL the mail carries, not just its token."""
-        links = re.findall(r"(http://\S+)", self.caplog.text)
+        links = re.findall(r"(http://\S+)", self._mailed_text())
         assert links, "no se encontro ningun link en el log"
         return links[-1]
 
