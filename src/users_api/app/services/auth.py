@@ -298,6 +298,7 @@ class AuthService:
             subject=user.id,
             role=user.role.value,
             handle=user.handle,
+            profile_visibility=user.profile_visibility.value,
             expires_in_minutes=self.settings.access_token_minutes,
             issuer=self.settings.jwt_issuer,
         )
