@@ -12,7 +12,10 @@ from users_api.app.models.tokens import PasswordResetToken
 from users_api.app.models.user import AccountStatus, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
-from users_api.app.repositories.tokens import PasswordResetTokenRepository
+from users_api.app.repositories.tokens import (
+    PasswordResetTokenRepository,
+    RefreshTokenRepository,
+)
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import hash_password, hash_token, verify_password
 from users_api.app.services.password_reset import PasswordResetService
@@ -60,6 +63,7 @@ def doubles():
     return {
         "users": users,
         "reset_tokens": AsyncMock(spec=PasswordResetTokenRepository),
+        "refresh_tokens": AsyncMock(spec=RefreshTokenRepository),
         "rate_limiter": rate_limiter,
         "sessions": AsyncMock(spec=SessionStore),
         "email_sender": AsyncMock(spec=EmailSender),
@@ -201,3 +205,17 @@ async def test_e1_h5_ca7_a_successful_reset_revokes_every_open_session(service, 
     call = doubles["sessions"].revoke_all.await_args
     assert call.args[0] == user.id
     assert call.kwargs["ttl_seconds"] == 15 * 60
+
+
+async def test_a_successful_reset_revokes_every_refresh_token_of_the_account(service, doubles):
+    user = build_user()
+    doubles["reset_tokens"].find_by_hash.return_value = build_token(user.id)
+    doubles["users"].get.return_value = user
+
+    await service.reset_password("un-token", NEW_PASSWORD)
+
+    # The cutoff written to the session store expires with the access tokens; a
+    # refresh token outlives it, so it has to be closed on its own.
+    call = doubles["refresh_tokens"].revoke_all.await_args
+    assert call.args == (user.id,)
+    assert isinstance(call.kwargs["revoked_at"], datetime)

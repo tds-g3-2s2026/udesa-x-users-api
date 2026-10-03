@@ -13,6 +13,7 @@ from users_api.api.deps import (
     CurrentUserDep,
     EmailSenderDep,
     RateLimiterDep,
+    RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
     UserRepositoryDep,
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/me", tags=["auth"])
 
 async def get_password_change_service(
     users: UserRepositoryDep,
+    refresh_tokens: RefreshTokenRepositoryDep,
     rate_limiter: RateLimiterDep,
     sessions: SessionStoreDep,
     settings: SettingsDep,
@@ -32,6 +34,7 @@ async def get_password_change_service(
 ) -> PasswordChangeService:
     return PasswordChangeService(
         users=users,
+        refresh_tokens=refresh_tokens,
         rate_limiter=rate_limiter,
         sessions=sessions,
         settings=settings,
