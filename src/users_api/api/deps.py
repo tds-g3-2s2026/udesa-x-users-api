@@ -213,6 +213,21 @@ async def require_superadmin(user: CurrentUserDep) -> User:
 SuperadminDep = Annotated[User, Depends(require_superadmin)]
 
 
+async def require_administrator(user: CurrentUserDep) -> User:
+    """The account behind the token, refused unless it belongs to the backoffice."""
+    if not user.is_administrator:
+        raise ProblemError(
+            status=403,
+            code="administrator-required",
+            title="No se pudo completar la acción",
+            detail="Solo un administrador puede ver esta información",
+        )
+    return user
+
+
+AdministratorDep = Annotated[User, Depends(require_administrator)]
+
+
 async def require_internal_token(
     settings: SettingsDep,
     token: Annotated[str | None, Header(alias="X-Internal-Token")] = None,
