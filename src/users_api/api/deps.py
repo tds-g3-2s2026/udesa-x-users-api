@@ -28,6 +28,7 @@ from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
     EmailVerificationTokenRepository,
     PasswordResetTokenRepository,
+    RefreshTokenRepository,
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import decode_access_token
@@ -38,6 +39,9 @@ from users_api.infrastructure.database.email_verification_token_repository impor
 )
 from users_api.infrastructure.database.password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
+)
+from users_api.infrastructure.database.refresh_token_repository import (
+    SqlAlchemyRefreshTokenRepository,
 )
 from users_api.infrastructure.database.session import session_scope
 from users_api.infrastructure.database.user_repository import SqlAlchemyUserRepository
@@ -86,6 +90,10 @@ def get_reset_token_repository(session: SessionDep) -> PasswordResetTokenReposit
     return SqlAlchemyPasswordResetTokenRepository(session=session)
 
 
+def get_refresh_token_repository(session: SessionDep) -> RefreshTokenRepository:
+    return SqlAlchemyRefreshTokenRepository(session=session)
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SigningKeyDep = Annotated[object, Depends(get_signing_key)]
 EmailSenderDep = Annotated[EmailSender, Depends(get_email_sender)]
@@ -98,6 +106,7 @@ VerificationTokenRepositoryDep = Annotated[
 ResetTokenRepositoryDep = Annotated[
     PasswordResetTokenRepository, Depends(get_reset_token_repository)
 ]
+RefreshTokenRepositoryDep = Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)]
 
 
 # Rejects a missing or malformed Authorization header before anything else runs.

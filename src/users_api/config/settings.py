@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     jwt_issuer: str = "users-api"
     access_token_minutes: int = 15
 
+    # How long a refresh token lasts, and so how long a session stays open
+    # without the app logging in again. Every use hands out a new token that
+    # lasts this long again.
+    refresh_token_days: int = 7
+
     # Five failed attempts lock the account for fifteen minutes.
     login_max_attempts: int = 5
     login_lockout_minutes: int = 15

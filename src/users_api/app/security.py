@@ -39,11 +39,16 @@ def verify_password(password: str, password_hash: str | None) -> bool:
 
 
 def hash_token(raw_token: str) -> str:
-    """Digest used to store emailed tokens without keeping the token itself."""
+    """Digest used to store emailed and refresh tokens without keeping the token itself."""
     return hashlib.sha256(raw_token.encode()).hexdigest()
 
 
 def generate_emailed_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def generate_refresh_token() -> str:
+    """256 random bits, long enough that the digest alone is a safe way to look it up."""
     return secrets.token_urlsafe(32)
 
 
