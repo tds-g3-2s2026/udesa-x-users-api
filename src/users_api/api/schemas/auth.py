@@ -102,6 +102,16 @@ class AdminLoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1)
+
+
+class LogoutRequest(BaseModel):
+    # Optional: without it only the access token is revoked, which is all a
+    # client that never got a refresh token has to close.
+    refresh_token: str | None = None
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

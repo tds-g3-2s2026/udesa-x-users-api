@@ -249,3 +249,218 @@ async def test_e1_h1_ca1_reopening_the_emailed_link_still_reports_the_account_ve
 
     assert response.status_code == 200
     assert response.json()["status"] == "verified"
+
+
+async def logged_in(api) -> dict:
+    await api.register_and_verify()
+    response = await api.login()
+    assert response.status_code == 200
+    return response.json()
+
+
+async def open_refresh_tokens(api) -> int:
+    async with api.app.state.engine.begin() as connection:
+        result = await connection.execute(
+            text("SELECT count(*) FROM refresh_tokens WHERE revoked_at IS NULL")
+        )
+    return result.scalar_one()
+
+
+async def test_the_app_login_hands_out_a_refresh_token_and_stores_only_its_digest(api):
+    body = await logged_in(api)
+
+    assert body["refresh_token"]
+    async with api.app.state.engine.begin() as connection:
+        stored = (await connection.execute(text("SELECT token_hash FROM refresh_tokens"))).all()
+    assert [row.token_hash for row in stored] != [body["refresh_token"]]
+    assert len(stored) == 1 and len(stored[0].token_hash) == 64
+
+
+async def test_refreshing_rotates_the_token_and_the_old_one_stops_working(api):
+    first = await logged_in(api)
+
+    response = await api.refresh(first["refresh_token"])
+
+    assert response.status_code == 200
+    second = response.json()
+    assert set(second) >= {"access_token", "refresh_token", "token_type", "expires_in"}
+    assert second["refresh_token"] != first["refresh_token"]
+    assert second["expires_in"] == 15 * 60
+    assert (await api.get_profile(second["access_token"])).status_code == 200
+    # The new token works, the old one does not.
+    assert (await api.refresh(second["refresh_token"])).status_code == 200
+    replayed = await api.refresh(first["refresh_token"])
+    assert replayed.status_code == 401
+    assert replayed.json()["type"].endswith("/invalid-refresh-token")
+
+
+async def test_an_unknown_refresh_token_is_refused_with_a_problem(api):
+    response = await api.refresh("not-a-token-that-was-ever-issued")
+
+    assert response.status_code == 401
+    assert response.headers["content-type"] == "application/problem+json; charset=utf-8"
+    body = response.json()
+    assert body["type"].endswith("/invalid-refresh-token")
+    assert body["title"] == "No se pudo renovar la sesión"
+    assert body["detail"] == "Tu sesión venció. Iniciá sesión de nuevo"
+    assert body["instance"] == "/api/auth/refresh"
+
+
+async def test_an_empty_refresh_token_is_a_validation_error(api):
+    assert (await api.refresh("")).status_code == 422
+
+
+async def test_a_refresh_token_stops_working_once_it_expires(api):
+    body = await logged_in(api)
+    async with api.app.state.engine.begin() as connection:
+        await connection.execute(
+            text("UPDATE refresh_tokens SET expires_at = now() - interval '1 second'")
+        )
+
+    response = await api.refresh(body["refresh_token"])
+
+    assert response.status_code == 401
+    assert response.json()["type"].endswith("/invalid-refresh-token")
+
+
+async def test_a_refresh_token_lasts_the_configured_days(api):
+    await logged_in(api)
+
+    query = text("SELECT extract(epoch FROM expires_at - created_at) / 86400 FROM refresh_tokens")
+    async with api.app.state.engine.begin() as connection:
+        days = (await connection.execute(query)).scalar_one()
+    assert round(float(days)) == api.app.state.settings.refresh_token_days == 7
+
+
+async def test_reusing_a_refresh_token_signs_the_whole_account_out(api):
+    phone = await logged_in(api)
+    laptop = (await api.login()).json()
+    rotated = (await api.refresh(phone["refresh_token"])).json()
+
+    # The old token of the phone comes back.
+    reused = await api.refresh(phone["refresh_token"])
+
+    assert reused.status_code == 401
+    assert reused.json()["type"].endswith("/invalid-refresh-token")
+    # Committed, not rolled back with the 401: nothing of the account is open.
+    assert await open_refresh_tokens(api) == 0
+    assert (await api.refresh(rotated["refresh_token"])).status_code == 401
+    assert (await api.refresh(laptop["refresh_token"])).status_code == 401
+    # And the access tokens already out stop working too.
+    revoked = await api.get_profile(rotated["access_token"])
+    assert revoked.status_code == 401
+    assert revoked.json()["type"].endswith("/session-revoked")
+    assert (await api.get_profile(laptop["access_token"])).status_code == 401
+
+
+async def test_only_one_of_two_simultaneous_refreshes_wins(api):
+    import asyncio
+
+    body = await logged_in(api)
+
+    first, second = await asyncio.gather(
+        api.refresh(body["refresh_token"]), api.refresh(body["refresh_token"])
+    )
+
+    assert sorted([first.status_code, second.status_code]) == [200, 401]
+
+
+async def test_logging_out_with_the_refresh_token_leaves_it_unusable(api):
+    body = await logged_in(api)
+
+    assert (await api.logout(body["access_token"], body["refresh_token"])).status_code == 204
+
+    refused = await api.refresh(body["refresh_token"])
+    assert refused.status_code == 401
+    assert refused.json()["type"].endswith("/invalid-refresh-token")
+
+
+async def test_logging_out_without_a_body_still_works_and_keeps_the_refresh_token(api):
+    body = await logged_in(api)
+
+    assert (await api.logout(body["access_token"])).status_code == 204
+
+    assert (await api.refresh(body["refresh_token"])).status_code == 200
+
+
+async def test_logging_out_leaves_the_refresh_token_of_another_device_alone(api):
+    phone = await logged_in(api)
+    laptop = (await api.login()).json()
+
+    await api.logout(phone["access_token"], phone["refresh_token"])
+
+    assert (await api.refresh(laptop["refresh_token"])).status_code == 200
+
+
+async def test_logging_out_ignores_a_refresh_token_nobody_issued(api):
+    body = await logged_in(api)
+
+    response = await api.logout(body["access_token"], "not-a-token-that-was-ever-issued")
+
+    assert response.status_code == 204
+    assert (await api.refresh(body["refresh_token"])).status_code == 200
+
+
+async def test_logging_out_ignores_the_refresh_token_of_another_account(api):
+    mine = await logged_in(api)
+    await api.register_and_verify(email="otra@udesa.edu.ar", handle="@otra_02")
+    theirs = (await api.login(identifier="otra@udesa.edu.ar")).json()
+
+    assert (await api.logout(mine["access_token"], theirs["refresh_token"])).status_code == 204
+
+    assert (await api.refresh(theirs["refresh_token"])).status_code == 200
+
+
+async def test_logging_out_with_an_expired_access_token_still_closes_the_refresh_family(api):
+    import jwt
+
+    from users_api.app.security import issue_access_token
+
+    body = await logged_in(api)
+    claims = jwt.decode(
+        body["access_token"], api.app.state.signing_key.public_key(), algorithms=["EdDSA"]
+    )
+    expired = issue_access_token(
+        api.app.state.signing_key,
+        subject=claims["sub"],
+        role=claims["role"],
+        handle=claims["handle"],
+        profile_visibility=claims["profile_visibility"],
+        expires_in_minutes=15,
+        issuer=api.app.state.settings.jwt_issuer,
+        now=datetime.now(UTC) - timedelta(hours=1),
+    )
+
+    assert (await api.logout(expired, body["refresh_token"])).status_code == 204
+
+    assert (await api.refresh(body["refresh_token"])).status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [("suspended", "account-suspended"), ("under_review", "account-under-review")],
+)
+async def test_a_blocked_account_cannot_refresh_its_session(api, status, code):
+    body = await logged_in(api)
+    await set_user_flag(api.app, "status", status)
+
+    response = await api.refresh(body["refresh_token"])
+
+    assert response.status_code == 403
+    assert response.json()["type"].endswith(f"/{code}")
+    assert response.json()["title"] == "No se pudo renovar la sesión"
+    # The refusal rolled the consumption back: nothing was spent, and nothing
+    # new was handed out.
+    await set_user_flag(api.app, "status", "active")
+    assert (await api.refresh(body["refresh_token"])).status_code == 200
+
+
+async def test_a_refresh_token_of_a_deleted_account_is_refused(api):
+    body = await logged_in(api)
+    async with api.app.state.engine.begin() as connection:
+        await connection.execute(text("UPDATE users SET deleted_at = now()"))
+
+    response = await api.refresh(body["refresh_token"])
+
+    assert response.status_code == 403
+    assert response.json()["type"].endswith("/account-suspended")

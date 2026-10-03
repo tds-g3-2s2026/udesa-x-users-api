@@ -30,13 +30,14 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/verify` | Consume el token y valida la cuenta |
 | `GET /auth/verify?token=` | Lo mismo, para el link del correo: un cliente de correo solo puede abrirlo con `GET` |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
-| `POST /auth/login` | Devuelve el access token. El claim `role` lleva el rol real de la cuenta |
+| `POST /auth/login` | Devuelve el access token y un refresh token que inicia una sesión nueva. El claim `role` lleva el rol real de la cuenta |
+| `POST /auth/refresh` | Cuerpo `{"refresh_token": "..."}`. Canjea el refresh token por un access token nuevo y el siguiente refresh token, con la misma forma de respuesta que el login. Un token inválido, vencido o ya revocado responde `401` con el código `invalid-refresh-token` |
 | `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
 | `POST /admin/users` | Crea un administrador con una contraseña temporal. Solo `superadmin`. La temporal viaja en claro en la respuesta, una única vez |
 | `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `GET /admin/metrics` | Cuentas de la app verificadas y no borradas: activas (`active_users`) y en revisión (`accounts_under_review`). Cualquier administrador; un usuario común recibe `403` |
-| `POST /auth/logout` | Revoca el token de sesión activo |
+| `POST /auth/logout` | Revoca el access token activo. Acepta un cuerpo opcional `{"refresh_token": "..."}`: si el token es de la misma cuenta, revoca toda su sesión. Un token desconocido o ajeno se ignora, y el cierre sigue respondiendo `204` |
 | `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
@@ -51,6 +52,16 @@ Una cuenta en revisión no puede iniciar sesión: el login responde `403` con el
 tenía dejan de servir en `users-api` al instante. `posts-api` no ve esa revocación y los acepta
 hasta que vencen, como máximo `ACCESS_TOKEN_MINUTES`. Salir de revisión le toca al backoffice
 (`E5-H7`). Una cuenta suspendida no pasa a revisión: la decisión del administrador pesa más.
+
+**Refresh tokens.** El access token dura `ACCESS_TOKEN_MINUTES`; el refresh token mantiene la sesión
+abierta hasta `REFRESH_TOKEN_DAYS` sin pedir las credenciales de nuevo. Es opaco y en la base solo
+queda su hash SHA-256. Cada canje lo consume y entrega el siguiente de la misma familia (la cadena de
+tokens de un login), así que cada dispositivo tiene la suya. Si llega un token que ya se canjeó, se
+asume que alguien guardó una copia: se revocan todos los refresh tokens de la cuenta y también sus
+access tokens vigentes, y la respuesta es la misma `401 invalid-refresh-token`, sin revelar el
+reuso. Cada canje vuelve a revisar la cuenta: suspendida o en revisión responde `403`, con el código
+de siempre (`account-suspended`, `account-under-review`). El login del backoffice
+(`POST /admin/auth/login`) no entrega refresh token.
 
 En desarrollo el correo no se envía: el adaptador de consola escribe el link en el log (ver
 [Correo](#correo) para mandarlo de verdad). Se lo saca así:
@@ -75,6 +86,7 @@ tiene que tener el mismo valor en los dos servicios.
 | `LOG_LEVEL` | `INFO` | Nivel de log |
 | `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo: el host solo, sin `/api` |
 | `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
+| `REFRESH_TOKEN_DAYS` | `7` | Vida del refresh token, y por lo tanto cuánto dura una sesión sin volver a pedir las credenciales |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
 | `ADMIN_LOGIN_MAX_ATTEMPTS` / `ADMIN_LOGIN_LOCKOUT_MINUTES` | `3` / `30` | Bloqueo del login del backoffice. Contador independiente del de la app |
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | sin definir | Credenciales del primer superadmin, que siembra el comando de abajo |
@@ -194,6 +206,10 @@ uv run alembic upgrade head          # aplicar
 de esquema se editaban en `0001_esquema_actual.py`. Con el servicio desplegado, esa migración
 quedó como base fija y cada cambio suma una nueva, como `0002_estado_de_cuenta.py`. Editar una
 migración ya aplicada no llega a la base de producción: Alembic la da por corrida.
+
+`0003_refresh_tokens.py` crea la tabla `refresh_tokens` (hash del token, familia, vencimiento, uso y
+revocación). Es una tabla nueva y no toca datos existentes: quien tenía una sesión abierta la
+conserva hasta que venza su access token, y el próximo login le entrega su primer refresh token.
 
 ## Correr los tests
 

@@ -70,8 +70,16 @@ class Api:
             f"http://test/internal/users/{user_id}/review", headers=headers
         )
 
-    async def logout(self, token: str):
-        return await self.client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    async def logout(self, token: str, refresh_token: str | None = None):
+        # Without the body at all when there is no refresh token: the route has
+        # to accept both shapes.
+        body = {} if refresh_token is None else {"json": {"refresh_token": refresh_token}}
+        return await self.client.post(
+            "/auth/logout", headers={"Authorization": f"Bearer {token}"}, **body
+        )
+
+    async def refresh(self, refresh_token: str):
+        return await self.client.post("/auth/refresh", json={"refresh_token": refresh_token})
 
     async def change_password(
         self,

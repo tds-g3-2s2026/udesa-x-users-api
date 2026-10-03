@@ -51,7 +51,10 @@ async def clean_state():
     redis = Redis.from_url(os.environ["REDIS_URL"])
     async with engine.begin() as connection:
         await connection.execute(
-            text("TRUNCATE users, email_verification_tokens, password_reset_tokens CASCADE")
+            text(
+                "TRUNCATE users, email_verification_tokens, password_reset_tokens, "
+                "refresh_tokens CASCADE"
+            )
         )
     await redis.flushdb()
 
