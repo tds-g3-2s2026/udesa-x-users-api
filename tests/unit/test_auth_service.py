@@ -19,7 +19,10 @@ from users_api.app.models.tokens import EmailVerificationToken
 from users_api.app.models.user import AccountStatus, Role, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
-from users_api.app.repositories.tokens import EmailVerificationTokenRepository
+from users_api.app.repositories.tokens import (
+    EmailVerificationTokenRepository,
+    RefreshTokenRepository,
+)
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import hash_password, hash_token, issue_access_token
 from users_api.app.services.auth import INVALID_CREDENTIALS, AuthService
@@ -63,6 +66,7 @@ def doubles():
     return {
         "users": users,
         "verification_tokens": AsyncMock(spec=EmailVerificationTokenRepository),
+        "refresh_tokens": AsyncMock(spec=RefreshTokenRepository),
         "rate_limiter": AsyncMock(spec=RateLimiter),
         "sessions": AsyncMock(spec=SessionStore),
         "email_sender": AsyncMock(spec=EmailSender),
@@ -296,10 +300,11 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
     doubles["users"].find_by_identifier.return_value = user
     service.settings.jwt_issuer = "configured-users-api"
 
-    token, expires_in = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    token = session.access_token
 
     doubles["rate_limiter"].reset.assert_awaited_once()
-    assert expires_in == 15 * 60
+    assert session.expires_in == 15 * 60
 
     claims = jwt.decode(
         token, signing_key.public_key(), algorithms=["EdDSA"], issuer="configured-users-api"
@@ -311,7 +316,8 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
 async def test_e5_h2_ca1_the_app_login_reports_the_real_role(service, doubles, signing_key):
     doubles["users"].find_by_identifier.return_value = build_user(role=Role.MODERATOR)
 
-    token, _ = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    token = session.access_token
 
     claims = jwt.decode(token, signing_key.public_key(), algorithms=["EdDSA"])
     assert claims["role"] == "moderator"
@@ -389,8 +395,8 @@ async def test_e5_h2_ca3_three_failures_do_not_lock_the_app_door(service, double
     doubles["rate_limiter"].count.return_value = 3
     doubles["users"].find_by_identifier.return_value = build_user()
 
-    token, _ = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
-    assert token
+    session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
+    assert session.access_token
 
 
 async def test_e5_h2_a_suspended_administrator_is_refused_once_the_password_is_proven(

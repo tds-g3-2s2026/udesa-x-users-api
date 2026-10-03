@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from users_api.api.deps import (
     EmailSenderDep,
     RateLimiterDep,
+    RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
     SigningKeyDep,
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def get_auth_service(
     users: UserRepositoryDep,
     verification_tokens: VerificationTokenRepositoryDep,
+    refresh_tokens: RefreshTokenRepositoryDep,
     rate_limiter: RateLimiterDep,
     sessions: SessionStoreDep,
     settings: SettingsDep,
@@ -37,6 +39,7 @@ async def get_auth_service(
     return AuthService(
         users=users,
         verification_tokens=verification_tokens,
+        refresh_tokens=refresh_tokens,
         rate_limiter=rate_limiter,
         sessions=sessions,
         settings=settings,
@@ -95,11 +98,15 @@ async def resend_verification(
 
 @router.post("/login")
 async def login(payload: LoginRequest, service: ServiceDep) -> LoginResponse:
-    token, expires_in = await service.login(
+    session = await service.login(
         identifier=payload.identifier,
         password=payload.password,
     )
-    return LoginResponse(access_token=token, expires_in=expires_in)
+    return LoginResponse(
+        access_token=session.access_token,
+        refresh_token=session.refresh_token,
+        expires_in=session.expires_in,
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

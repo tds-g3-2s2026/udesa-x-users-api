@@ -106,6 +106,9 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    # The app's door and the refresh route set it. The backoffice login leaves
+    # it empty: an administrator's session ends with its access token.
+    refresh_token: str | None = None
     # Only the backoffice sets this. An account whose password was handed to
     # it by somebody else can do nothing until it picks its own.
     must_change_password: bool = False

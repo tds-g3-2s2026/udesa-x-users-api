@@ -1,19 +1,25 @@
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import NoReturn
 
 import jwt
 
 from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
-from users_api.app.models.tokens import EmailVerificationToken
+from users_api.app.models.tokens import EmailVerificationToken, RefreshToken
 from users_api.app.models.user import AccountStatus, User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
-from users_api.app.repositories.tokens import EmailVerificationTokenRepository
+from users_api.app.repositories.tokens import (
+    EmailVerificationTokenRepository,
+    RefreshTokenRepository,
+)
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import (
     decode_access_token,
     generate_emailed_token,
+    generate_refresh_token,
     hash_password,
     hash_token,
     issue_access_token,
@@ -35,6 +41,38 @@ NOT_AN_ADMINISTRATOR = "Esta cuenta no tiene acceso al backoffice"
 EXPIRED_TEMPORARY_PASSWORD = (
     "La contraseña temporal venció. Pedile al superadministrador que genere una nueva"
 )
+
+# One message for every way a refresh token can fail, so the answer never tells
+# a thief whether a copy of the token was recognised, expired or already used.
+REFRESH_FAILED_TITLE = "No se pudo renovar la sesión"
+REFRESH_FAILED_DETAIL = "Tu sesión venció. Iniciá sesión de nuevo"
+
+
+class InvalidRefreshTokenError(ProblemError):
+    def __init__(self) -> None:
+        super().__init__(
+            status=401,
+            code="invalid-refresh-token",
+            title=REFRESH_FAILED_TITLE,
+            detail=REFRESH_FAILED_DETAIL,
+        )
+
+
+class ReusedRefreshTokenError(InvalidRefreshTokenError):
+    """The same answer as any refused token, but the refusal left writes behind.
+
+    It is its own class because the route has to tell it apart: raising rolls
+    the request's transaction back, and with it the revocation of the account's
+    refresh tokens that detecting the reuse just wrote. The route answers with
+    the problem instead of raising it, so that transaction still commits.
+    """
+
+
+@dataclass(frozen=True)
+class IssuedSession:
+    access_token: str
+    refresh_token: str
+    expires_in: int
 
 
 def deny_blocked_account(user: User, *, title: str) -> None:
@@ -95,6 +133,7 @@ class AuthService:
 
     users: UserRepository
     verification_tokens: EmailVerificationTokenRepository
+    refresh_tokens: RefreshTokenRepository
     rate_limiter: RateLimiter
     sessions: SessionStore
     settings: Settings
@@ -200,7 +239,7 @@ class AuthService:
             lockout_minutes=self.settings.admin_login_lockout_minutes,
         )
 
-    async def login(self, *, identifier: str, password: str) -> tuple[str, int]:
+    async def login(self, *, identifier: str, password: str) -> IssuedSession:
         policy = self.app_login_policy
         await self.guard_lockout(identifier, policy)
 
@@ -233,7 +272,15 @@ class AuthService:
         self.deny_expired_temporary_password(user)
 
         await self.rate_limiter.reset(policy.key(identifier))
-        return self.issue_session(user)
+        access_token, expires_in = self.issue_session(user)
+        # Every login starts a family of its own: the sessions of two devices
+        # are separate chains, and closing one leaves the other open.
+        refresh_token = await self.issue_refresh_token(
+            user, family_id=uuid.uuid4(), now=datetime.now(UTC)
+        )
+        return IssuedSession(
+            access_token=access_token, refresh_token=refresh_token, expires_in=expires_in
+        )
 
     async def admin_login(self, *, email: str, password: str) -> tuple[str, int, bool]:
         """The backoffice door: same credentials, stricter policy, role required.
@@ -278,17 +325,20 @@ class AuthService:
         token, expires_in = self.issue_session(user)
         return token, expires_in, user.must_change_password
 
-    def deny_expired_temporary_password(self, user: User) -> None:
+    def deny_expired_temporary_password(
+        self, user: User, *, title: str = "No se pudo iniciar sesión"
+    ) -> None:
         """Checked at both doors, so an expired credential opens neither.
 
         Letting it through the app login would be enough to reach the change
         password endpoint and turn an expired credential into a permanent one.
+        Refreshing a session asks again, with its own title.
         """
         if user.temporary_password_expired(datetime.now(UTC)):
             raise ProblemError(
                 status=403,
                 code="temporary-password-expired",
-                title="No se pudo iniciar sesión",
+                title=title,
                 detail=EXPIRED_TEMPORARY_PASSWORD,
             )
 
@@ -303,6 +353,73 @@ class AuthService:
             issuer=self.settings.jwt_issuer,
         )
         return token, self.settings.access_token_minutes * 60
+
+    async def issue_refresh_token(self, user: User, *, family_id: uuid.UUID, now: datetime) -> str:
+        """Hand out the next token of a family. Only its digest is stored."""
+        raw_token = generate_refresh_token()
+        await self.refresh_tokens.add(
+            RefreshToken(
+                user_id=user.id,
+                family_id=family_id,
+                token_hash=hash_token(raw_token),
+                expires_at=now + timedelta(days=self.settings.refresh_token_days),
+            )
+        )
+        return raw_token
+
+    async def refresh(self, raw_token: str) -> IssuedSession:
+        """Trade a refresh token for a new access token and the next refresh token.
+
+        Every token works once. Presenting one again means somebody kept a copy,
+        and there is no telling the thief from the owner, so the whole account
+        is signed out and has to log in again.
+        """
+        now = datetime.now(UTC)
+        token_hash = hash_token(raw_token)
+
+        consumed = await self.refresh_tokens.consume(token_hash, now=now)
+        if consumed is None:
+            await self.refuse_refresh_token(token_hash, now=now)
+
+        user = await self.users.get(consumed.user_id)
+        if user is None:
+            raise InvalidRefreshTokenError()
+
+        # The state of the account is read on every refresh and not only at
+        # login: a suspension or a review has to stop a session that is already
+        # open, and the access token alone only covers fifteen minutes of it.
+        # These raise, which rolls back the consumption: the token stays usable
+        # for whoever the account is released to.
+        deny_blocked_account(user, title=REFRESH_FAILED_TITLE)
+        self.deny_expired_temporary_password(user, title=REFRESH_FAILED_TITLE)
+
+        access_token, expires_in = self.issue_session(user)
+        refresh_token = await self.issue_refresh_token(user, family_id=consumed.family_id, now=now)
+        return IssuedSession(
+            access_token=access_token, refresh_token=refresh_token, expires_in=expires_in
+        )
+
+    async def refuse_refresh_token(self, token_hash: str, *, now: datetime) -> NoReturn:
+        """Always raises: either the token is no good, or it was used a second time.
+
+        A token already used and not yet revoked is the signal. One whose family
+        was revoked, by a logout or by an earlier detection, already ended what
+        it could open, so presenting it again is only an invalid token: acting
+        on it too would let whoever holds an old copy sign the owner out again
+        and again.
+        """
+        token = await self.refresh_tokens.find_by_hash(token_hash)
+        if token is not None and token.used_at is not None and token.revoked_at is None:
+            await self.refresh_tokens.revoke_all(token.user_id, revoked_at=now)
+            # The access tokens already handed out are still good for fifteen
+            # minutes, and the thief may hold one.
+            await self.sessions.revoke_all(
+                token.user_id,
+                now=now,
+                ttl_seconds=self.settings.access_token_minutes * 60,
+            )
+            raise ReusedRefreshTokenError()
+        raise InvalidRefreshTokenError()
 
     async def guard_lockout(self, identifier: str, policy: LoginPolicy) -> None:
         failures = await self.rate_limiter.count(policy.key(identifier))
@@ -327,11 +444,15 @@ class AuthService:
         """
         await self.rate_limiter.hit(policy.key(identifier), window_seconds=policy.window_seconds)
 
-    async def logout(self, token: str) -> None:
-        """Revoke the token that was used to call this.
+    async def logout(self, token: str, refresh_token: str | None = None) -> None:
+        """Revoke the token that was used to call this, and the refresh token's family.
 
         A JWT is self-contained and the server never stored it, so logging out
         means recording its jti as revoked until it would have expired anyway.
+
+        The refresh token is what keeps a session alive after that, so the app
+        sends it along. One that is unknown, or belongs to somebody else, is
+        ignored: logging out has nothing to refuse.
         """
         try:
             claims = decode_access_token(
@@ -341,7 +462,11 @@ class AuthService:
             )
         except jwt.ExpiredSignatureError:
             # Already unusable on its own; revoking it changes nothing, so this
-            # is not an error. Logout is idempotent.
+            # is not an error. Logout is idempotent. The refresh token is the
+            # one that can still open a session, and an expired token says
+            # nothing about who is calling, so holding the refresh token is the
+            # proof of ownership.
+            await self.revoke_refresh_family(refresh_token, owner=None)
             return
         except jwt.InvalidTokenError as exc:
             raise ProblemError(
@@ -356,3 +481,19 @@ class AuthService:
             expires_at=datetime.fromtimestamp(claims["exp"], tz=UTC),
             now=datetime.now(UTC),
         )
+        await self.revoke_refresh_family(refresh_token, owner=uuid.UUID(claims["sub"]))
+
+    async def revoke_refresh_family(
+        self, raw_token: str | None, *, owner: uuid.UUID | None
+    ) -> None:
+        """End the chain a refresh token belongs to, when there is one to end.
+
+        With an owner, the token has to be theirs: the access token proves who
+        is calling, and logging out must not close somebody else's session.
+        """
+        if raw_token is None:
+            return
+        token = await self.refresh_tokens.find_by_hash(hash_token(raw_token))
+        if token is None or (owner is not None and token.user_id != owner):
+            return
+        await self.refresh_tokens.revoke_family(token.family_id, revoked_at=datetime.now(UTC))
