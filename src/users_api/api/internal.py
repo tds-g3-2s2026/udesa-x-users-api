@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from users_api.api.deps import (
+    RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
     UserRepositoryDep,
@@ -26,9 +27,14 @@ router = APIRouter(
 
 
 async def get_account_review_service(
-    users: UserRepositoryDep, sessions: SessionStoreDep, settings: SettingsDep
+    users: UserRepositoryDep,
+    refresh_tokens: RefreshTokenRepositoryDep,
+    sessions: SessionStoreDep,
+    settings: SettingsDep,
 ) -> AccountReviewService:
-    return AccountReviewService(users=users, sessions=sessions, settings=settings)
+    return AccountReviewService(
+        users=users, refresh_tokens=refresh_tokens, sessions=sessions, settings=settings
+    )
 
 
 ServiceDep = Annotated[AccountReviewService, Depends(get_account_review_service)]
