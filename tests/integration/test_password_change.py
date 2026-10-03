@@ -65,6 +65,27 @@ async def test_e1_h13_ca3_revokes_every_session_including_the_current_one(api):
     assert (await api.login(password=NEW_PASSWORD)).status_code == 200
 
 
+async def test_changing_the_password_revokes_every_refresh_token(api):
+    await api.register_and_verify()
+    phone = (await api.login()).json()
+    laptop = (await api.login()).json()
+
+    changed = await api.change_password(phone["access_token"], CURRENT_PASSWORD, NEW_PASSWORD)
+    assert changed.status_code == 200
+
+    # The cutoff in Redis lives as long as an access token. Dropping it stands
+    # in for the fifteen minutes passing: what keeps the old refresh tokens dead
+    # then is their own revocation.
+    await api.app.state.redis.flushdb()
+    for old in (phone, laptop):
+        refused = await api.refresh(old["refresh_token"])
+        assert refused.status_code == 401
+        assert refused.json()["type"].endswith("/invalid-refresh-token")
+
+    fresh = (await api.login(password=NEW_PASSWORD)).json()
+    assert (await api.refresh(fresh["refresh_token"])).status_code == 200
+
+
 async def test_e1_h13_ca4_locks_the_account_after_three_wrong_current_passwords(api):
     token = await signed_in(api)
 

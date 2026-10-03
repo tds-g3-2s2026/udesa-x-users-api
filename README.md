@@ -39,8 +39,8 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /admin/metrics` | Cuentas de la app verificadas y no borradas: activas (`active_users`) y en revisión (`accounts_under_review`). Cualquier administrador; un usuario común recibe `403` |
 | `POST /auth/logout` | Revoca el access token activo. Acepta un cuerpo opcional `{"refresh_token": "..."}`: si el token es de la misma cuenta, revoca toda su sesión. Un token desconocido o ajeno se ignora, y el cierre sigue respondiendo `204` |
 | `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
-| `POST /auth/reset-password` | Consume el link y cambia la contraseña |
-| `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida |
+| `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
+| `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |

@@ -132,6 +132,20 @@ async def test_e1_h5_ca7_successful_reset_revokes_every_active_session(api):
     assert 0 < ttl <= 15 * 60
 
 
+async def test_a_successful_reset_revokes_every_refresh_token(api):
+    await api.register_and_verify()
+    old = (await api.login()).json()
+
+    token = await request_reset(api)
+    assert (await api.reset_password(token, NEW_PASSWORD)).status_code == 200
+
+    # Without the cutoff in Redis, as if its fifteen minutes had passed.
+    await api.app.state.redis.flushdb()
+    refused = await api.refresh(old["refresh_token"])
+    assert refused.status_code == 401
+    assert refused.json()["type"].endswith("/invalid-refresh-token")
+
+
 async def test_e1_h5_ca8_limits_reset_requests_for_the_same_email(api):
     await api.register_and_verify()
 

@@ -7,7 +7,10 @@ from users_api.app.models.tokens import PasswordResetToken
 from users_api.app.models.user import User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
-from users_api.app.repositories.tokens import PasswordResetTokenRepository
+from users_api.app.repositories.tokens import (
+    PasswordResetTokenRepository,
+    RefreshTokenRepository,
+)
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import (
     generate_emailed_token,
@@ -29,6 +32,7 @@ def reset_request_key(identifier: str) -> str:
 class PasswordResetService:
     users: UserRepository
     reset_tokens: PasswordResetTokenRepository
+    refresh_tokens: RefreshTokenRepository
     rate_limiter: RateLimiter
     sessions: SessionStore
     settings: Settings
@@ -122,4 +126,8 @@ class PasswordResetService:
             now=now,
             ttl_seconds=self.settings.access_token_minutes * 60,
         )
+        # The cutoff above stops expiring after the access token's life, and a
+        # refresh token lasts days: left open, it would hand out working
+        # sessions again to whoever held it before the password changed.
+        await self.refresh_tokens.revoke_all(user.id, revoked_at=now)
         return user

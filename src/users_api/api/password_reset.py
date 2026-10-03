@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, status
 from users_api.api.deps import (
     EmailSenderDep,
     RateLimiterDep,
+    RefreshTokenRepositoryDep,
     ResetTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
@@ -22,6 +23,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def get_reset_service(
     users: UserRepositoryDep,
     reset_tokens: ResetTokenRepositoryDep,
+    refresh_tokens: RefreshTokenRepositoryDep,
     rate_limiter: RateLimiterDep,
     sessions: SessionStoreDep,
     settings: SettingsDep,
@@ -30,6 +32,7 @@ async def get_reset_service(
     return PasswordResetService(
         users=users,
         reset_tokens=reset_tokens,
+        refresh_tokens=refresh_tokens,
         rate_limiter=rate_limiter,
         sessions=sessions,
         settings=settings,

@@ -14,6 +14,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.models.user import User
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import RefreshTokenRepository
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import hash_password, verify_password
 from users_api.app.services.auth import LoginPolicy
@@ -26,6 +27,7 @@ CURRENT_PASSWORD_INVALID = "La contraseña actual no es correcta"
 @dataclass
 class PasswordChangeService:
     users: UserRepository
+    refresh_tokens: RefreshTokenRepository
     rate_limiter: RateLimiter
     sessions: SessionStore
     settings: Settings
@@ -99,11 +101,16 @@ class PasswordChangeService:
         # runs on Redis, outside the request's transaction, and before that
         # transaction commits: the security guarantee is made to hold even if
         # something below fails.
+        now = datetime.now(UTC)
         await self.sessions.revoke_all(
             user.id,
-            now=datetime.now(UTC),
+            now=now,
             ttl_seconds=self.settings.access_token_minutes * 60,
         )
+        # That cutoff stops mattering once the access tokens it covers expire,
+        # and a refresh token lasts days: left open, it would hand out working
+        # sessions again to whoever held it before the password changed.
+        await self.refresh_tokens.revoke_all(user.id, revoked_at=now)
 
         # Sent last, and only once everything else went through, so
         # a failed change never warns about a change that did not happen.
