@@ -89,6 +89,9 @@ class UserModel(Base):
     password_reset_tokens: Mapped[list["PasswordResetTokenModel"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    refresh_tokens: Mapped[list["RefreshTokenModel"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class EmailVerificationTokenModel(Base):
@@ -136,3 +139,31 @@ class PasswordResetTokenModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[UserModel] = relationship(back_populates="password_reset_tokens")
+
+
+class RefreshTokenModel(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        postgresql.UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+
+    # Every token handed out by one login shares it. Revoking a family ends that
+    # session and no other, and a token used twice is found by its family.
+    family_id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), index=True)
+
+    # Only the digest is stored, like the emailed tokens: a leaked database dump
+    # cannot be turned into working sessions.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Set when the token is exchanged. A token that comes back with this set is
+    # a copy somebody kept, which is what reuse detection looks for.
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped[UserModel] = relationship(back_populates="refresh_tokens")
