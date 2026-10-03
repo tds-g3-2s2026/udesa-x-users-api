@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from users_api.api.deps import (
@@ -13,15 +14,18 @@ from users_api.api.deps import (
     UserRepositoryDep,
     VerificationTokenRepositoryDep,
 )
+from users_api.api.errors import problem_error_handler
 from users_api.api.schemas.auth import (
     LoginRequest,
     LoginResponse,
+    LogoutRequest,
+    RefreshRequest,
     RegisterRequest,
     RegisterResponse,
     ResendVerificationRequest,
     VerifyRequest,
 )
-from users_api.app.services.auth import AuthService
+from users_api.app.services.auth import AuthService, ReusedRefreshTokenError
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -109,7 +113,32 @@ async def login(payload: LoginRequest, service: ServiceDep) -> LoginResponse:
     )
 
 
+@router.post("/refresh", response_model=LoginResponse)
+async def refresh(
+    payload: RefreshRequest, request: Request, service: ServiceDep
+) -> LoginResponse | JSONResponse:
+    """Trade a refresh token for a new access token and the next refresh token.
+
+    Each refresh token works once. Presenting one a second time signs the whole
+    account out, and the answer is the same 401 as for any other invalid token.
+    """
+    try:
+        session = await service.refresh(payload.refresh_token)
+    except ReusedRefreshTokenError as reused:
+        # Answered and not raised: raising rolls the transaction back, and with
+        # it the revocation of the account's refresh tokens that the service
+        # just wrote.
+        return await problem_error_handler(request, reused)
+    return LoginResponse(
+        access_token=session.access_token,
+        refresh_token=session.refresh_token,
+        expires_in=session.expires_in,
+    )
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(credentials: BearerDep, service: ServiceDep) -> None:
-    """Revoke the caller's token."""
-    await service.logout(credentials.credentials)
+async def logout(
+    credentials: BearerDep, service: ServiceDep, payload: LogoutRequest | None = None
+) -> None:
+    """Revoke the caller's token, and the family of the refresh token if one comes along."""
+    await service.logout(credentials.credentials, payload.refresh_token if payload else None)
