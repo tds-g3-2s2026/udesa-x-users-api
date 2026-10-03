@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import AccountStatus
 from users_api.app.repositories.sessions import SessionStore
+from users_api.app.repositories.tokens import RefreshTokenRepository
 from users_api.app.repositories.users import UserRepository
 from users_api.config.settings import Settings
 
@@ -20,6 +21,7 @@ from users_api.config.settings import Settings
 class AccountReviewService:
     users: UserRepository
     sessions: SessionStore
+    refresh_tokens: RefreshTokenRepository
     settings: Settings
 
     async def put_under_review(self, user_id: uuid.UUID) -> None:
@@ -47,8 +49,13 @@ class AccountReviewService:
         # this second is refused. Its life only needs to match the longest a
         # token can live: past that, the tokens it guards have expired anyway,
         # and the account can no longer get new ones.
+        now = datetime.now(UTC)
         await self.sessions.revoke_all(
             user.id,
-            now=datetime.now(UTC),
+            now=now,
             ttl_seconds=self.settings.access_token_minutes * 60,
         )
+        # A refresh token would still be open once the account is released from
+        # review, and past the cutoff above it would give out working sessions
+        # again to whoever held it. The owner logs in anew instead.
+        await self.refresh_tokens.revoke_all(user.id, revoked_at=now)

@@ -44,6 +44,23 @@ async def test_e3_h5_ca4_review_revokes_every_active_token(api):
         assert refused.json()["type"].endswith("/session-revoked")
 
 
+async def test_review_revokes_every_refresh_token(api):
+    user_id = await register_verified(api)
+    phone = (await api.login()).json()
+    laptop = (await api.login()).json()
+
+    assert (await api.put_under_review(user_id, internal_token())).status_code == 204
+
+    # Released from review and without the Redis cutoff, as if its fifteen
+    # minutes had passed: the refresh tokens are still dead.
+    await set_user_flag(api.app, "status", "active")
+    await api.app.state.redis.flushdb()
+    for session in (phone, laptop):
+        refused = await api.refresh(session["refresh_token"])
+        assert refused.status_code == 401
+        assert refused.json()["type"].endswith("/invalid-refresh-token")
+
+
 async def test_e3_h5_ca2_an_account_under_review_cannot_log_in(api):
     user_id = await register_verified(api)
     await api.put_under_review(user_id, internal_token())
