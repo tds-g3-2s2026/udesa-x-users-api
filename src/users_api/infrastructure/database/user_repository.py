@@ -13,7 +13,7 @@ or not at all.
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from users_api.app.models.user import (
@@ -100,6 +100,18 @@ class SqlAlchemyUserRepository(UserRepository):
             .order_by(UserModel.created_at)
         )
         return [to_domain(row) for row in rows]
+
+    async def count_users(self, status: AccountStatus) -> int:
+        return await self.session.scalar(
+            select(func.count())
+            .select_from(UserModel)
+            .where(
+                UserModel.role == Role.USER.value,
+                UserModel.status == status.value,
+                UserModel.is_email_verified.is_(True),
+                UserModel.deleted_at.is_(None),
+            )
+        )
 
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool:
         taken = await self.session.scalar(

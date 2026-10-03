@@ -35,6 +35,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /admin/users` | Crea un administrador con una contraseña temporal. Solo `superadmin`. La temporal viaja en claro en la respuesta, una única vez |
 | `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
+| `GET /admin/metrics` | Cuentas de la app verificadas y no borradas: activas (`active_users`) y en revisión (`accounts_under_review`). Cualquier administrador; un usuario común recibe `403` |
 | `POST /auth/logout` | Revoca el token de sesión activo |
 | `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña |

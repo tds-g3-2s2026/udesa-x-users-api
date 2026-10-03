@@ -11,6 +11,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from users_api.api.admin_auth import router as admin_auth_router
+from users_api.api.admin_metrics import router as admin_metrics_router
 from users_api.api.admin_users import router as admin_users_router
 from users_api.api.auth import router as auth_router
 from users_api.api.errors import (
@@ -96,6 +97,7 @@ app.include_router(internal_router)
 app.include_router(auth_router, prefix=API_PREFIX)
 app.include_router(admin_auth_router, prefix=API_PREFIX)
 app.include_router(admin_users_router, prefix=API_PREFIX)
+app.include_router(admin_metrics_router, prefix=API_PREFIX)
 app.include_router(password_reset_router, prefix=API_PREFIX)
 app.include_router(password_change_router, prefix=API_PREFIX)
 app.include_router(profile_router, prefix=API_PREFIX)
