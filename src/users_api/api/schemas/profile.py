@@ -1,9 +1,11 @@
-"""The profile a user edits about themselves.
+"""The profile a user edits about themselves, and the public part of it.
 
-The email and the handle live outside this schema on purpose: the email never
-changes here, and the handle was already fixed at registration. `display_name`
-and `bio` are the only two fields a user can touch.
+The email and the handle live outside the update schema on purpose: the email
+never changes here, and the handle was already fixed at registration.
+`display_name` and `bio` are the only two fields a user can touch.
 """
+
+from datetime import datetime
 
 import nh3
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -33,6 +35,16 @@ class ProfileResponse(BaseModel):
     handle: str
     display_name: str | None
     bio: str | None
+
+
+class PublicProfileResponse(BaseModel):
+    """What another service may show about any account. Never the email."""
+
+    id: str
+    handle: str
+    display_name: str | None
+    bio: str | None
+    created_at: datetime
 
 
 class UpdateProfileRequest(BaseModel):
