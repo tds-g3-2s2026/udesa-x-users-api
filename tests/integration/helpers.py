@@ -70,6 +70,13 @@ class Api:
             f"http://test/internal/users/{user_id}/review", headers=headers
         )
 
+    async def get_public_profile(self, user_id: str, internal_token: str | None = None):
+        """Read the profile the way posts-api does, outside `/api`."""
+        headers = {} if internal_token is None else {"X-Internal-Token": internal_token}
+        return await self.client.get(
+            f"http://test/internal/users/{user_id}/profile", headers=headers
+        )
+
     async def logout(self, token: str, refresh_token: str | None = None):
         # Without the body at all when there is no refresh token: the route has
         # to accept both shapes.
