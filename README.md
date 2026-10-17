@@ -46,6 +46,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
 | `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
 | `POST /internal/users/{id}/review` | Pone la cuenta en revisión y revoca todas sus sesiones y todos sus refresh tokens. Fuera de `/api`, así que el gateway no la expone: la llama `posts-api` por la red del cluster ([ADR-011](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-011-denuncias-y-cuenta-en-revision.md)). Exige el header `X-Internal-Token`; sin él o con otro valor responde `401`. Llamarla de nuevo responde `204` y no cambia nada |
+| `GET /internal/users/{id}/profile` | Devuelve la parte pública de una cuenta: `id`, `handle`, `display_name`, `bio` y `created_at`, nunca el email. La llama `posts-api` para armar el perfil de otro usuario (E2-H14). Una cuenta inexistente o eliminada responde `404`. Exige el mismo `X-Internal-Token` que la ruta anterior |
 
 Una cuenta en revisión no puede iniciar sesión: el login responde `403` con el código
 `account-under-review` y un mensaje propio, distinto del de `account-suspended`. Los tokens que ya

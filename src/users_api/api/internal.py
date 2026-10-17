@@ -17,7 +17,9 @@ from users_api.api.deps import (
     UserRepositoryDep,
     require_internal_token,
 )
+from users_api.api.schemas.profile import PublicProfileResponse
 from users_api.app.services.account_review import AccountReviewService
+from users_api.app.services.profile import ProfileService
 
 router = APIRouter(
     prefix="/internal",
@@ -40,6 +42,13 @@ async def get_account_review_service(
 ServiceDep = Annotated[AccountReviewService, Depends(get_account_review_service)]
 
 
+async def get_profile_service(users: UserRepositoryDep) -> ProfileService:
+    return ProfileService(users=users)
+
+
+ProfileServiceDep = Annotated[ProfileService, Depends(get_profile_service)]
+
+
 @router.post("/users/{user_id}/review", status_code=status.HTTP_204_NO_CONTENT)
 async def put_under_review(user_id: uuid.UUID, service: ServiceDep) -> None:
     """Put the account under review and end every session it has open.
@@ -48,3 +57,23 @@ async def put_under_review(user_id: uuid.UUID, service: ServiceDep) -> None:
     different users. Calling it again answers the same and changes nothing.
     """
     await service.put_under_review(user_id)
+
+
+@router.get("/users/{user_id}/profile")
+async def get_public_profile(
+    user_id: uuid.UUID, service: ProfileServiceDep
+) -> PublicProfileResponse:
+    """The public part of an account, for another user's profile screen.
+
+    posts-api calls this for E2-H14: the counters and the posts are its own,
+    but the name, the biography and the registration date live here. The
+    email never leaves this service.
+    """
+    user = await service.public_profile(user_id)
+    return PublicProfileResponse(
+        id=str(user.id),
+        handle=user.handle,
+        display_name=user.display_name,
+        bio=user.bio,
+        created_at=user.created_at,
+    )
