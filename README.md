@@ -41,6 +41,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta |
+| `DELETE /me` | Da de baja la cuenta sabiendo la contraseña actual, que viaja en el body (`{"current_password": "..."}`). Marca `deleted_at` y no borra la fila: el email y el handle quedan reservados. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens. Comparte con el cambio de contraseña el cupo de intentos fallidos. Un administrador recibe `403`: sus cuentas se gestionan desde el backoffice |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |

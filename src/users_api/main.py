@@ -10,6 +10,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from users_api.api.account_deletion import router as account_deletion_router
 from users_api.api.admin_auth import router as admin_auth_router
 from users_api.api.admin_metrics import router as admin_metrics_router
 from users_api.api.admin_users import router as admin_users_router
@@ -100,5 +101,6 @@ app.include_router(admin_users_router, prefix=API_PREFIX)
 app.include_router(admin_metrics_router, prefix=API_PREFIX)
 app.include_router(password_reset_router, prefix=API_PREFIX)
 app.include_router(password_change_router, prefix=API_PREFIX)
+app.include_router(account_deletion_router, prefix=API_PREFIX)
 app.include_router(profile_router, prefix=API_PREFIX)
 app.include_router(preferences_router, prefix=API_PREFIX)
