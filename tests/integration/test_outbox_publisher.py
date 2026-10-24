@@ -22,6 +22,7 @@ from users_api.app import events
 from users_api.app.models.user import User
 from users_api.infrastructure.database.models import OutboxModel
 from users_api.infrastructure.database.session import build_session_factory
+from users_api.infrastructure.rabbitmq import outbox_publisher
 from users_api.infrastructure.rabbitmq.outbox_publisher import EXCHANGE, OutboxPublisher
 
 pytestmark = pytest.mark.skipif(
@@ -163,6 +164,70 @@ async def test_a_returned_event_stays_without_holding_back_the_ones_behind_it(en
         await message.ack()
         delivered.append(message.message_id)
     assert delivered == [first["id"], last["id"]]
+
+
+async def test_a_broker_lost_mid_pass_keeps_what_was_confirmed_and_leaves_the_rest(engine, queue):
+    now = datetime.now(UTC)
+    first, second, third = (events.password_changed(USER, now=now).envelope for _ in range(3))
+    for index, envelope in enumerate((first, second, third)):
+        await insert(engine, envelope, created_at=now + timedelta(seconds=index))
+    publisher = make_publisher(engine)
+    await publisher.connect()
+    publish = publisher.publish
+    attempted = []
+
+    async def lose_the_broker_before_the_second(row):
+        attempted.append(str(row.id))
+        if str(row.id) == second["id"]:
+            await publisher.connection.close()
+        await publish(row)
+
+    publisher.publish = lose_the_broker_before_the_second
+    try:
+        published, interrupted = await publisher.publish_batch()
+    finally:
+        await publisher.close()
+
+    # Not a returned message: the pass stops there instead of trying the third.
+    # Against a broker that is really gone each try would wait out the publish
+    # timeout while holding the row locks. The delete of the first, already at
+    # the broker, is still committed.
+    assert attempted == [first["id"], second["id"]]
+    assert (published, interrupted) == (1, True)
+    assert await pending(engine) == [second["id"], third["id"]]
+    message = await next_message(queue)
+    await message.ack()
+    assert message.message_id == first["id"]
+
+
+async def test_a_refused_exchange_declaration_closes_the_connection(engine, monkeypatch):
+    # An exchange that already exists with another type: the broker closes the
+    # channel instead of declaring it.
+    name = f"test.conflict.{uuid.uuid4().hex}"
+    admin = await aio_pika.connect_robust(os.environ["RABBITMQ_URL"])
+    async with admin:
+        channel = await admin.channel()
+        conflicting = await channel.declare_exchange(name, ExchangeType.FANOUT, auto_delete=False)
+        monkeypatch.setattr(outbox_publisher, "EXCHANGE", name)
+        opened = []
+        connect_robust = aio_pika.connect_robust
+
+        async def recording_connect(*args, **kwargs):
+            connection = await connect_robust(*args, **kwargs)
+            opened.append(connection)
+            return connection
+
+        monkeypatch.setattr(aio_pika, "connect_robust", recording_connect)
+        publisher = make_publisher(engine)
+        try:
+            with pytest.raises(aio_pika.exceptions.ChannelPreconditionFailed):
+                await publisher.connect()
+        finally:
+            await conflicting.delete()
+
+    # Nothing half open is kept or leaked: the next pass starts from scratch.
+    assert publisher.connection is None
+    assert [connection.is_closed for connection in opened] == [True]
 
 
 async def test_a_notification_wakes_the_publisher_before_the_poll_does(engine, queue):
