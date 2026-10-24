@@ -86,6 +86,15 @@ class Api:
     async def refresh(self, refresh_token: str):
         return await self.client.post("/auth/refresh", json={"refresh_token": refresh_token})
 
+    async def delete_account(self, token: str, current_password: str):
+        # httpx's `delete()` takes no body, so the verb goes through `request()`.
+        return await self.client.request(
+            "DELETE",
+            "/me",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"current_password": current_password},
+        )
+
     async def change_password(
         self,
         token: str,

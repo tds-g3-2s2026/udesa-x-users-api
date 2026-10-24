@@ -33,6 +33,7 @@ BUILT = {
         USER, token="Xc5vB8nM2kLj6hGf", now=NOW
     ),
     "password.changed.v1": lambda: events.password_changed(USER, now=NOW),
+    "user.deleted.v1": lambda: events.user_deleted(USER, now=NOW),
 }
 
 
@@ -62,6 +63,14 @@ def test_the_envelope_is_a_cloudevent_with_a_fresh_id_and_a_utc_time(event_type)
     # The id is what the consumer deduplicates on: two events never share it.
     assert first.id != second.id
     assert str(first.id) == first.envelope["id"]
+
+
+def test_user_deleted_carries_the_id_and_nothing_that_identifies_the_account():
+    event = events.user_deleted(USER, now=NOW)
+
+    # Whoever cleans up after the account needs to find it, not to know who it
+    # was: no email, no handle.
+    assert event.envelope["data"] == {"user_id": str(USER.id)}
 
 
 def test_the_time_is_converted_to_utc():
