@@ -23,6 +23,7 @@ USER_REGISTERED = "user.registered.v1"
 EMAIL_VERIFICATION_REQUESTED = "email_verification.requested.v1"
 PASSWORD_RESET_REQUESTED = "password.reset_requested.v1"
 PASSWORD_CHANGED = "password.changed.v1"
+USER_DELETED = "user.deleted.v1"
 
 
 @dataclass(frozen=True)
@@ -94,3 +95,14 @@ def password_changed(user: User, *, now: datetime) -> Event:
         {"user_id": str(user.id), "email": user.email},
         now=now,
     )
+
+
+def user_deleted(user: User, *, now: datetime) -> Event:
+    """An account was closed.
+
+    `time` is the instant of the closing, not of the publication: consumers
+    record it as the deletion date, so it has to be the same `now` the account
+    was marked with. Nothing but the id travels: whoever cleans up after the
+    account does not need to know who it was, and the schema forbids more.
+    """
+    return build_event(USER_DELETED, {"user_id": str(user.id)}, now=now)
