@@ -10,8 +10,8 @@ import os
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 

@@ -10,6 +10,7 @@ def build_settings(**overrides) -> Settings:
     defaults = {
         "database_url": "postgresql+asyncpg://unused",
         "redis_url": "redis://unused",
+        "rabbitmq_url": "amqp://unused",
         "superadmin_email": "admin@udesa.edu.ar",
         "superadmin_password": "Admin1234",
     }

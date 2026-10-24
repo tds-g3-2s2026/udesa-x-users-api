@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock
 import jwt
 import pytest
 
-from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken
 from users_api.app.models.user import AccountStatus, Role, User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -35,8 +35,14 @@ def build_settings(**overrides) -> Settings:
     return Settings(
         database_url="postgresql+asyncpg://unused",
         redis_url="redis://unused",
+        rabbitmq_url="amqp://unused",
         **overrides,
     )
+
+
+def published_event(doubles) -> dict:
+    """The envelope of the event the service queued last."""
+    return doubles["outbox"].add.await_args.args[0].envelope
 
 
 def build_user(**overrides) -> User:
@@ -69,7 +75,7 @@ def doubles():
         "refresh_tokens": AsyncMock(spec=RefreshTokenRepository),
         "rate_limiter": AsyncMock(spec=RateLimiter),
         "sessions": AsyncMock(spec=SessionStore),
-        "email_sender": AsyncMock(spec=EmailSender),
+        "outbox": AsyncMock(spec=OutboxRepository),
     }
 
 
@@ -129,17 +135,17 @@ async def test_the_link_carries_the_api_prefix_exactly_once(doubles, signing_key
 
     await service.register(email="alumno@udesa.edu.ar", handle="@alumno_01", password=PASSWORD)
 
-    sent_url = doubles["email_sender"].send_verification.await_args.kwargs["verification_url"]
+    sent_url = published_event(doubles)["data"]["verification_url"]
     # The base is the bare host: the prefix is added once, from API_PREFIX.
     assert sent_url.startswith("https://tds-group-3.tds-linar.udesa.edu.ar/api/auth/verify?token=")
 
 
-async def test_e1_h1_ca6_sends_a_link_whose_digest_is_what_gets_stored(service, doubles):
+async def test_e1_h1_ca6_queues_a_link_whose_digest_is_what_gets_stored(service, doubles):
     doubles["users"].add.side_effect = lambda user: user
 
     await service.register(email="alumno@udesa.edu.ar", handle="@alumno_01", password=PASSWORD)
 
-    sent_url = doubles["email_sender"].send_verification.await_args.kwargs["verification_url"]
+    sent_url = published_event(doubles)["data"]["verification_url"]
     raw_token = sent_url.split("token=")[1]
     stored = doubles["verification_tokens"].add.await_args.args[0]
 
@@ -231,9 +237,41 @@ async def test_e1_h1_ca6_resending_stays_silent_when_there_is_nothing_to_send(
 
     await service.resend_verification("alumno@udesa.edu.ar")
 
-    # No exception and no mail: answering differently would tell an attacker
+    # No exception and no event: answering differently would tell an attacker
     # which addresses are registered.
-    doubles["email_sender"].send_verification.assert_not_awaited()
+    doubles["outbox"].add.assert_not_awaited()
+
+
+async def test_e1_h1_ca1_registering_queues_user_registered_with_the_link(service, doubles):
+    doubles["users"].add.side_effect = lambda user: user
+
+    await service.register(email="alumno@udesa.edu.ar", handle="@alumno_01", password=PASSWORD)
+
+    envelope = published_event(doubles)
+    assert envelope["type"] == "user.registered.v1"
+    assert envelope["data"]["email"] == "alumno@udesa.edu.ar"
+    assert envelope["data"]["handle"] == "@alumno_01"
+    assert "/auth/verify?token=" in envelope["data"]["verification_url"]
+    doubles["outbox"].add.assert_awaited_once()
+
+
+async def test_e1_h1_ca6_a_new_link_queues_a_verification_request_and_not_a_registration(
+    service, doubles
+):
+    user = build_user(is_email_verified=False)
+    doubles["users"].find_by_email.return_value = user
+
+    await service.resend_verification("alumno@udesa.edu.ar")
+
+    # The account was not created again: a second user.registered would make
+    # whoever counts registrations count it twice.
+    doubles["outbox"].add.assert_awaited_once()
+    envelope = published_event(doubles)
+    assert envelope["type"] == "email_verification.requested.v1"
+    assert envelope["data"]["user_id"] == str(user.id)
+    assert "handle" not in envelope["data"]
+    stored = doubles["verification_tokens"].add.await_args.args[0]
+    assert stored.token_hash == hash_token(envelope["data"]["verification_url"].split("token=")[1])
 
 
 async def test_e1_h2_ca2_a_locked_account_is_refused_before_touching_the_database(service, doubles):

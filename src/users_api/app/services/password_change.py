@@ -9,9 +9,10 @@ rules, and succeeding revokes every session of the account.
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from users_api.app.clients.email import EmailSender
+from users_api.app import events
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import RefreshTokenRepository
@@ -31,7 +32,7 @@ class PasswordChangeService:
     rate_limiter: RateLimiter
     sessions: SessionStore
     settings: Settings
-    email_sender: EmailSender
+    outbox: OutboxRepository
 
     @property
     def policy(self) -> LoginPolicy:
@@ -112,9 +113,10 @@ class PasswordChangeService:
         # sessions again to whoever held it before the password changed.
         await self.refresh_tokens.revoke_all(user.id, revoked_at=now)
 
-        # Sent last, and only once everything else went through, so
-        # a failed change never warns about a change that did not happen.
-        await self.email_sender.send_password_changed(to=user.email)
+        # Queued last, and only once everything else went through, so
+        # a failed change never warns about a change that did not happen. It
+        # commits with the request, and the notice goes out afterwards.
+        await self.outbox.add(events.password_changed(user, now=now))
 
     async def guard_lockout(self, identifier: str, policy: LoginPolicy) -> None:
         failures = await self.rate_limiter.count(policy.key(identifier))

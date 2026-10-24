@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from users_api.api.deps import (
-    EmailSenderDep,
+    OutboxRepositoryDep,
     RateLimiterDep,
     RefreshTokenRepositoryDep,
     SessionStoreDep,
@@ -38,7 +38,7 @@ async def get_auth_service(
     sessions: SessionStoreDep,
     settings: SettingsDep,
     signing_key: SigningKeyDep,
-    email_sender: EmailSenderDep,
+    outbox: OutboxRepositoryDep,
 ) -> AuthService:
     return AuthService(
         users=users,
@@ -48,7 +48,7 @@ async def get_auth_service(
         sessions=sessions,
         settings=settings,
         signing_key=signing_key,
-        email_sender=email_sender,
+        outbox=outbox,
     )
 
 

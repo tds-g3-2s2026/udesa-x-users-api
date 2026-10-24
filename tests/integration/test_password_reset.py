@@ -7,8 +7,8 @@ from sqlalchemy import text
 from tests.integration.helpers import REGISTRATION
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 NEW_PASSWORD = "Contrasena2"
@@ -26,7 +26,7 @@ async def expire_reset_tokens(app) -> None:
 async def request_reset(api, identifier=REGISTRATION["email"]) -> str:
     """Ask for a link and return the token that went out by mail."""
     assert (await api.forgot_password(identifier)).status_code == 202
-    return api.last_emailed_token()
+    return await api.last_token()
 
 
 async def test_e1_h5_ca1_reset_link_expires_after_ten_minutes(api):

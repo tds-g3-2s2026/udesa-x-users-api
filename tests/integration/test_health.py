@@ -3,10 +3,10 @@ import os
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-# Needs PostgreSQL and Redis running. docker/docker-compose.dev.yml provides both.
+# Needs PostgreSQL, Redis and RabbitMQ running. docker/docker-compose.dev.yml provides them.
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 
