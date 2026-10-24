@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import PasswordResetToken
 from users_api.app.models.user import AccountStatus, User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -29,6 +29,7 @@ def build_settings(**overrides) -> Settings:
     return Settings(
         database_url="postgresql+asyncpg://unused",
         redis_url="redis://unused",
+        rabbitmq_url="amqp://unused",
         **overrides,
     )
 
@@ -66,7 +67,7 @@ def doubles():
         "refresh_tokens": AsyncMock(spec=RefreshTokenRepository),
         "rate_limiter": rate_limiter,
         "sessions": AsyncMock(spec=SessionStore),
-        "email_sender": AsyncMock(spec=EmailSender),
+        "outbox": AsyncMock(spec=OutboxRepository),
     }
 
 
@@ -107,7 +108,7 @@ async def test_e1_h5_ca4_nothing_is_sent_and_nothing_is_revealed(service, double
 
     await service.forgot_password("alumno@udesa.edu.ar")
 
-    doubles["email_sender"].send_password_reset.assert_not_awaited()
+    doubles["outbox"].add.assert_not_awaited()
     doubles["reset_tokens"].add.assert_not_awaited()
 
 
@@ -125,12 +126,14 @@ async def test_e1_h5_ca1_the_link_lasts_the_configured_ten_minutes(service, doub
     assert before + timedelta(minutes=10) <= stored.expires_at <= after + timedelta(minutes=10)
 
 
-async def test_e1_h5_ca1_the_mail_carries_the_token_and_the_table_only_its_digest(service, doubles):
+async def test_e1_h5_ca1_the_event_carries_the_token_and_the_table_only_its_digest(
+    service, doubles
+):
     doubles["users"].find_by_identifier.return_value = build_user()
 
     await service.forgot_password("alumno@udesa.edu.ar")
 
-    raw_token = doubles["email_sender"].send_password_reset.await_args.kwargs["token"]
+    raw_token = doubles["outbox"].add.await_args.args[0].envelope["data"]["token"]
     stored = doubles["reset_tokens"].add.await_args.args[0]
     assert stored.token_hash == hash_token(raw_token)
 

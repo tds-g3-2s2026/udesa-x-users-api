@@ -9,8 +9,8 @@ from users_api.config.settings import Settings
 from users_api.seed_superadmin import run
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 SUPERADMIN = {"email": "admin@udesa.edu.ar", "password": "Admin1234"}
@@ -20,6 +20,7 @@ def seed_settings(**overrides) -> Settings:
     defaults = {
         "database_url": os.environ["DATABASE_URL"],
         "redis_url": os.environ["REDIS_URL"],
+        "rabbitmq_url": os.environ["RABBITMQ_URL"],
         "superadmin_email": SUPERADMIN["email"],
         "superadmin_password": SUPERADMIN["password"],
     }

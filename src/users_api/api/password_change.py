@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 
 from users_api.api.deps import (
     CurrentUserDep,
-    EmailSenderDep,
+    OutboxRepositoryDep,
     RateLimiterDep,
     RefreshTokenRepositoryDep,
     SessionStoreDep,
@@ -30,7 +30,7 @@ async def get_password_change_service(
     rate_limiter: RateLimiterDep,
     sessions: SessionStoreDep,
     settings: SettingsDep,
-    email_sender: EmailSenderDep,
+    outbox: OutboxRepositoryDep,
 ) -> PasswordChangeService:
     return PasswordChangeService(
         users=users,
@@ -38,7 +38,7 @@ async def get_password_change_service(
         rate_limiter=rate_limiter,
         sessions=sessions,
         settings=settings,
-        email_sender=email_sender,
+        outbox=outbox,
     )
 
 

@@ -11,6 +11,9 @@ jobs:
       # ARQUITECTURA.md turns the gate on for the backend services in S3. Below
       # the minimum the PR goes red and cannot be merged.
       bloquear-por-cobertura: true
+      # RabbitMQ for the suite and for the production image: the publisher
+      # tests run against a real broker.
+      rabbitmq: true
 
   # Only a commit on main that passed CI reaches the cluster. The pipeline and
   # what it applies are documented in udesa-x-platform, "Despliegue continuo".
@@ -24,6 +27,6 @@ jobs:
       id-token: write
     with:
       servicio: users-api
-      secretos: DATABASE_URL REDIS_URL JWT_PRIVATE_KEY RESEND_API_KEY INTERNAL_API_TOKEN OTEL_EXPORTER_OTLP_HEADERS SUPERADMIN_EMAIL SUPERADMIN_PASSWORD
+      secretos: DATABASE_URL REDIS_URL RABBITMQ_URL JWT_PRIVATE_KEY INTERNAL_API_TOKEN OTEL_EXPORTER_OTLP_HEADERS SUPERADMIN_EMAIL SUPERADMIN_PASSWORD
       # The seed finds the account on every run after the first and does nothing.
       migracion: alembic upgrade head && python -m users_api.seed_superadmin

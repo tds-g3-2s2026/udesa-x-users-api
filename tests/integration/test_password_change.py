@@ -2,7 +2,7 @@
 
 This is the authenticated counterpart of email recovery: it changes how account
 ownership is proven, not what happens afterward. These tests cover the current
-password, lockout, and email notification; password policy and revocation are
+password, lockout, and the notification event; password policy and revocation are
 covered by the other flow.
 """
 
@@ -13,8 +13,8 @@ import pytest
 from tests.integration.helpers import REGISTRATION
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 CURRENT_PASSWORD = REGISTRATION["password"]
@@ -112,20 +112,25 @@ async def test_e1_h13_ca4_locks_the_account_after_three_wrong_current_passwords(
     assert (await api.login()).status_code == 200
 
 
-async def test_e1_h13_ca5_sends_a_notification_email(api):
+async def test_e1_h13_ca5_queues_a_notification_event(api):
     token = await signed_in(api)
-    api.caplog.clear()
+    before = len(await api.outbox_events())
 
     assert (await api.change_password(token, CURRENT_PASSWORD, NEW_PASSWORD)).status_code == 200
 
-    assert "la contraseña de la cuenta fue modificada" in api.caplog.text
-    assert REGISTRATION["email"].lower() in api.caplog.text
+    events = await api.outbox_events()
+    assert len(events) == before + 1
+    event = events[-1]
+    assert event["type"] == "password.changed.v1"
+    assert event["data"]["email"] == REGISTRATION["email"].lower()
+    # A notice and not an action: nothing in it the recipient could be tricked into using.
+    assert set(event["data"]) == {"user_id", "email"}
 
 
-async def test_e1_h13_ca5_notification_is_not_sent_when_the_change_fails(api):
+async def test_e1_h13_ca5_notification_is_not_queued_when_the_change_fails(api):
     token = await signed_in(api)
-    api.caplog.clear()
+    before = len(await api.outbox_events())
 
     assert (await api.change_password(token, "Incorrecta1", NEW_PASSWORD)).status_code == 400
 
-    assert "fue modificada" not in api.caplog.text
+    assert len(await api.outbox_events()) == before

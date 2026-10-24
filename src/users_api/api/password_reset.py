@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from users_api.api.deps import (
-    EmailSenderDep,
+    OutboxRepositoryDep,
     RateLimiterDep,
     RefreshTokenRepositoryDep,
     ResetTokenRepositoryDep,
@@ -27,7 +27,7 @@ async def get_reset_service(
     rate_limiter: RateLimiterDep,
     sessions: SessionStoreDep,
     settings: SettingsDep,
-    email_sender: EmailSenderDep,
+    outbox: OutboxRepositoryDep,
 ) -> PasswordResetService:
     return PasswordResetService(
         users=users,
@@ -36,7 +36,7 @@ async def get_reset_service(
         rate_limiter=rate_limiter,
         sessions=sessions,
         settings=settings,
-        email_sender=email_sender,
+        outbox=outbox,
     )
 
 

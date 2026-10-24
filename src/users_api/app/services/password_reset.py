@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from users_api.app.clients.email import EmailSender
+from users_api.app import events
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import PasswordResetToken
 from users_api.app.models.user import User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -36,10 +37,10 @@ class PasswordResetService:
     rate_limiter: RateLimiter
     sessions: SessionStore
     settings: Settings
-    email_sender: EmailSender
+    outbox: OutboxRepository
 
     async def forgot_password(self, identifier: str) -> None:
-        """Send the reset link. Always answers the same.
+        """Queue the reset code for mailing. Always answers the same.
 
         The rate limit is counted before looking the account up, and it is
         counted whether or not it exists: a counter that only moved for real
@@ -63,7 +64,7 @@ class PasswordResetService:
                 expires_at=now + timedelta(minutes=self.settings.password_reset_minutes),
             )
         )
-        await self.email_sender.send_password_reset(to=user.email, token=raw_token)
+        await self.outbox.add(events.password_reset_requested(user, token=raw_token, now=now))
 
     async def guard_reset_limit(self, identifier: str) -> None:
         """Cap how many links can be asked for the same identifier.

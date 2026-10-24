@@ -167,3 +167,25 @@ class RefreshTokenModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[UserModel] = relationship(back_populates="refresh_tokens")
+
+
+class OutboxModel(Base):
+    """Events waiting to be published (transactional outbox).
+
+    The row is written in the same transaction as the change it describes and
+    deleted by the publisher once the broker confirms it. No foreign key to
+    users on purpose: an event must outlive whatever it talks about.
+    """
+
+    __tablename__ = "outbox"
+
+    # The id of the event itself: it is what consumers deduplicate on.
+    id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
+    type: Mapped[str] = mapped_column(Text)
+
+    # The whole CloudEvents envelope. It can carry secrets, so it is never logged.
+    payload: Mapped[dict] = mapped_column(postgresql.JSONB)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
