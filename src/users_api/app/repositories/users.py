@@ -31,6 +31,17 @@ class UserRepository(ABC):
     async def find_by_email(self, email: str) -> User | None: ...
 
     @abstractmethod
+    async def search_user_accounts(
+        self, fragment: str, *, cursor: str | None, limit: int
+    ) -> tuple[list[User], str | None]:
+        """App accounts whose email or handle contains `fragment`, newest first.
+
+        `fragment` matches literally, wildcards included. Administrators and
+        deleted accounts are left out. Paged by an opaque cursor, returned
+        alongside the page and None when there is no next one.
+        """
+
+    @abstractmethod
     async def list_administrators(self) -> list[User]:
         """Every administrator account, oldest first. Deleted ones excluded."""
 
