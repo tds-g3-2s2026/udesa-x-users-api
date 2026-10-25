@@ -10,12 +10,16 @@ registration, where the account and its verification link have to land together
 or not at all.
 """
 
+import base64
+import binascii
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from users_api.app.errors import ProblemError
 from users_api.app.models.user import (
     AccountStatus,
     FeedLanguage,
@@ -25,6 +29,35 @@ from users_api.app.models.user import (
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.infrastructure.database.models import UserModel
+
+
+def escape_like(fragment: str) -> str:
+    """So a `%` or `_` typed in the search box matches itself and not anything."""
+    return fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def encode_cursor(row: UserModel) -> str:
+    """The position a page ends on: the keyset the search orders by.
+
+    Built and read only here, because its content is this query's ordering.
+    Above this module it is an opaque string the client echoes back.
+    """
+    raw = f"{row.created_at.isoformat()}|{row.id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def decode_cursor(value: str) -> tuple[datetime, uuid.UUID]:
+    try:
+        at, last_id = base64.urlsafe_b64decode(value.encode()).decode().split("|")
+        return datetime.fromisoformat(at), uuid.UUID(last_id)
+    except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+        # A tampered or stale cursor is the client's mistake, not a 500.
+        raise ProblemError(
+            status=400,
+            code="invalid-cursor",
+            title="Cursor inválido",
+            detail="El cursor no tiene un formato reconocible",
+        ) from error
 
 
 def to_domain(row: UserModel) -> User:
@@ -92,6 +125,35 @@ class SqlAlchemyUserRepository(UserRepository):
     async def find_by_email(self, email: str) -> User | None:
         row = await self.session.scalar(select(UserModel).where(UserModel.email == email))
         return to_domain(row) if row is not None else None
+
+    async def search_user_accounts(
+        self, fragment: str, *, cursor: str | None, limit: int
+    ) -> tuple[list[User], str | None]:
+        pattern = f"%{escape_like(fragment)}%"
+        statement = select(UserModel).where(
+            UserModel.role == Role.USER.value,
+            UserModel.deleted_at.is_(None),
+            or_(
+                UserModel.email.ilike(pattern, escape="\\"),
+                UserModel.handle.ilike(pattern, escape="\\"),
+            ),
+        )
+        if cursor is not None:
+            at, last_id = decode_cursor(cursor)
+            # A row comparison, so an account created in the same instant as
+            # the last one shown is neither repeated nor skipped.
+            statement = statement.where(tuple_(UserModel.created_at, UserModel.id) < (at, last_id))
+        # One past the page: getting it back is what says there is a next one.
+        rows = list(
+            await self.session.scalars(
+                statement.order_by(UserModel.created_at.desc(), UserModel.id.desc()).limit(
+                    limit + 1
+                )
+            )
+        )
+        page = rows[:limit]
+        next_cursor = encode_cursor(page[-1]) if len(rows) > limit else None
+        return [to_domain(row) for row in page], next_cursor
 
     async def list_administrators(self) -> list[User]:
         rows = await self.session.scalars(
