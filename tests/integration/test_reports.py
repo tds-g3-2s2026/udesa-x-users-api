@@ -167,3 +167,82 @@ async def test_e3_h5_ca4_the_internal_route_is_not_under_api(api):
         headers={"X-Internal-Token": internal_token()},
     )
     assert response.status_code == 404
+
+
+async def lift_review(api, user_id: str, internal_token: str | None):
+    """Call the internal route the way posts-api does when a case is closed, outside `/api`."""
+    headers = {} if internal_token is None else {"X-Internal-Token": internal_token}
+    return await api.client.delete(f"http://test/internal/users/{user_id}/review", headers=headers)
+
+
+async def test_e5_h7_lifting_the_review_lets_the_account_log_in_again(api):
+    user_id = await register_verified(api)
+    await api.put_under_review(user_id, internal_token())
+    before = datetime.now(UTC)
+
+    response = await lift_review(api, user_id, internal_token())
+
+    assert response.status_code == 204
+    assert (await api.login()).status_code == 200
+    status, reason, changed_at = await stored_status(api, user_id)
+    assert (status, reason) == ("active", None)
+    assert changed_at >= before
+
+
+async def test_e5_h7_lifting_the_review_does_not_bring_back_the_old_sessions(api):
+    user_id = await register_verified(api)
+    session = (await api.login()).json()
+    await api.put_under_review(user_id, internal_token())
+
+    await lift_review(api, user_id, internal_token())
+
+    # The owner logs in anew: what was revoked stays revoked.
+    refused = await api.get_profile(session["access_token"])
+    assert refused.json()["type"].endswith("/session-revoked")
+    refused = await api.refresh(session["refresh_token"])
+    assert refused.json()["type"].endswith("/invalid-refresh-token")
+
+
+async def test_e5_h7_lifting_the_review_leaves_a_suspended_account_suspended(api):
+    user_id = await register_verified(api)
+    blocked_at = datetime(2026, 10, 20, 9, tzinfo=UTC)
+    await set_user_flag(api.app, "status", "suspended")
+    await set_user_flag(api.app, "status_reason", "Spam reiterado")
+    await set_user_flag(api.app, "status_changed_at", blocked_at)
+
+    assert (await lift_review(api, user_id, internal_token())).status_code == 204
+
+    # "Suspender" in the inbox blocks first and then closes the case: the block
+    # has to survive the lift that comes with it.
+    assert await stored_status(api, user_id) == ("suspended", "Spam reiterado", blocked_at)
+    assert (await api.login()).json()["detail"] == "Cuenta suspendida"
+
+
+async def test_e5_h7_lifting_twice_changes_nothing(api):
+    user_id = await register_verified(api)
+    await api.put_under_review(user_id, internal_token())
+    assert (await lift_review(api, user_id, internal_token())).status_code == 204
+    lifted = await stored_status(api, user_id)
+
+    assert (await lift_review(api, user_id, internal_token())).status_code == 204
+
+    assert await stored_status(api, user_id) == lifted
+
+
+async def test_e5_h7_lifting_an_unknown_account_is_not_found(api):
+    response = await lift_review(api, str(uuid.uuid4()), internal_token())
+
+    assert response.status_code == 404
+    assert response.json()["type"].endswith("/account-not-found")
+
+
+@pytest.mark.parametrize("sent", [None, "otro-token"])
+async def test_e5_h7_the_lift_route_refuses_a_missing_or_wrong_token(api, sent):
+    user_id = await register_verified(api)
+    await api.put_under_review(user_id, internal_token())
+
+    response = await lift_review(api, user_id, sent)
+
+    assert response.status_code == 401
+    assert response.json()["type"].endswith("/invalid-internal-token")
+    assert (await stored_status(api, user_id))[0] == "under_review"
