@@ -176,3 +176,47 @@ async def test_e5_h6_handler_propagates_database_errors_and_can_retry(api, monke
         await handler(body)
     monkeypatch.setattr(SqlAlchemyAuditLogRepository, "add", original)
     assert await handler(body) == "ack"
+
+
+async def test_e5_h6_shutdown_waits_for_in_flight_audit_to_commit(api):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    completed = asyncio.Event()
+    real = build_event_handler(api.app.state.session_factory)
+
+    async def handle(body):
+        entered.set()
+        await release.wait()
+        result = await real(body)
+        completed.set()
+        return result
+
+    connection = await aio_pika.connect_robust(os.environ["RABBITMQ_URL"])
+    async with connection:
+        channel = await connection.channel()
+        exchange = await channel.declare_exchange(EXCHANGE, ExchangeType.TOPIC, durable=True)
+        consumer = EventConsumer(os.environ["RABBITMQ_URL"], handle, retry_seconds=0.1)
+        task = asyncio.create_task(consumer.run())
+        message = event()
+        try:
+            await asyncio.wait_for(consumer.ready.wait(), 15)
+            await (await channel.declare_queue(QUEUE, passive=True)).purge()
+            await publish(exchange, json.dumps(message).encode())
+            await asyncio.wait_for(entered.wait(), 5)
+
+            task.cancel()
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(asyncio.shield(task), 0.1)
+            assert not completed.is_set()
+
+            release.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait_for(task, 5)
+            assert completed.is_set()
+            async with api.app.state.session_factory() as session:
+                assert await session.get(AuditLogModel, uuid.UUID(message["id"])) is not None
+        finally:
+            release.set()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
