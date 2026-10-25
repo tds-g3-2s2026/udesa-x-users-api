@@ -42,14 +42,16 @@ class AccountReviewService:
         if user.status is not AccountStatus.ACTIVE:
             return
 
-        user.status = AccountStatus.UNDER_REVIEW
+        now = datetime.now(UTC)
+        # No reason: nobody decided it, the reports did. Whoever reviews the case
+        # reads them in posts-api.
+        user.change_status(AccountStatus.UNDER_REVIEW, at=now)
         await self.users.update(user)
 
         # The same cutoff a password change writes, so every token issued up to
         # this second is refused. Its life only needs to match the longest a
         # token can live: past that, the tokens it guards have expired anyway,
         # and the account can no longer get new ones.
-        now = datetime.now(UTC)
         await self.sessions.revoke_all(
             user.id,
             now=now,
