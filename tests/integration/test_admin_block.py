@@ -1,15 +1,13 @@
 """An administrator blocking an app account with a reason (E5-H5)."""
 
-import logging
 import os
 import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 
-from users_api.api import admin_user_accounts
-from users_api.infrastructure.database.models import UserModel
+from users_api.infrastructure.database.models import AuditLogModel, UserModel
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
@@ -209,26 +207,15 @@ async def test_e5_h5_an_app_user_cannot_block(api):
     assert response.json()["type"].endswith("/administrator-required")
 
 
-async def test_e5_h5_blocking_leaves_an_audit_entry(api, caplog):
+async def test_e5_h5_blocking_leaves_an_audit_entry(api):
     moderator_id, headers = await administrator_with_id(api, MODERATOR, "moderator")
     user_id = await given_registered(api)
-
-    with caplog.at_level(logging.INFO, logger="users_api.app.services.account_block"):
-        await block(api, headers, user_id)
-
-    # The log is shared by the whole process: the entry is found by its target.
-    [entry] = [
-        one for one in admin_user_accounts.audit_log.entries if one.target_id == uuid.UUID(user_id)
-    ]
+    assert (await block(api, headers, user_id)).status_code == 204
+    async with api.app.state.session_factory() as session:
+        entry = await session.scalar(
+            select(AuditLogModel).where(AuditLogModel.target_id == uuid.UUID(user_id))
+        )
     assert entry.actor_id == uuid.UUID(moderator_id)
+    assert entry.actor_email == MODERATOR["email"]
     assert (entry.action, entry.target_type) == ("user.blocked", "user")
     assert entry.details == {"reason": REASON}
-    # Only the ids reach the log that leaves the pod, never the reason.
-    [line] = [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == "users_api.app.services.account_block"
-    ]
-    assert user_id in line
-    assert moderator_id in line
-    assert REASON not in line

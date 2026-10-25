@@ -11,7 +11,7 @@ can do live on the dataclasses under each feature's `domain.py`.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -195,3 +195,26 @@ class OutboxModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True
     )
+
+
+class AuditLogModel(Base):
+    __tablename__ = "admin_audit_log"
+    __table_args__ = (
+        CheckConstraint(
+            "action IN ('admin.created', 'admin.temporary_password_reset', "
+            "'user.blocked', 'report.dismissed', 'report.resolved')",
+            name="ck_admin_audit_action",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    actor_id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), nullable=False)
+    actor_email: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), nullable=False)
+    details: Mapped[dict] = mapped_column(postgresql.JSONB, nullable=False, server_default="{}")
+
+
+Index("ix_admin_audit_order", AuditLogModel.occurred_at.desc(), AuditLogModel.id.desc())

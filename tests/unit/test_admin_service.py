@@ -69,7 +69,11 @@ async def test_e5_h2_the_seed_leaves_an_existing_account_alone(users, service):
 
 async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(service):
     created, temporary_password = await service.create_administrator(
-        email="Nueva@udesa.edu.ar", handle="@Moderadora", role=Role.MODERATOR
+        actor_id=uuid.uuid4(),
+        audit=AsyncMock(),
+        email="Nueva@udesa.edu.ar",
+        handle="@Moderadora",
+        role=Role.MODERATOR,
     )
 
     assert created.must_change_password is True
@@ -86,10 +90,18 @@ async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(servi
 async def test_e5_h1_each_administrator_gets_a_different_temporary_password(service):
 
     _, first = await service.create_administrator(
-        email="una@udesa.edu.ar", handle="@una_admin", role=Role.MODERATOR
+        actor_id=uuid.uuid4(),
+        audit=AsyncMock(),
+        email="una@udesa.edu.ar",
+        handle="@una_admin",
+        role=Role.MODERATOR,
     )
     _, second = await service.create_administrator(
-        email="otra@udesa.edu.ar", handle="@otra_admin", role=Role.MODERATOR
+        actor_id=uuid.uuid4(),
+        audit=AsyncMock(),
+        email="otra@udesa.edu.ar",
+        handle="@otra_admin",
+        role=Role.MODERATOR,
     )
 
     assert first != second
@@ -100,7 +112,11 @@ async def test_e5_h1_an_address_already_in_use_is_refused(users, service):
 
     with pytest.raises(ProblemError) as raised:
         await service.create_administrator(
-            email="admin@udesa.edu.ar", handle="@otro_admin", role=Role.SUPERADMIN
+            actor_id=uuid.uuid4(),
+            audit=AsyncMock(),
+            email="admin@udesa.edu.ar",
+            handle="@otro_admin",
+            role=Role.SUPERADMIN,
         )
 
     assert raised.value.status == 409
@@ -111,7 +127,11 @@ async def test_e5_h1_the_temporary_password_is_given_a_day_to_be_used(service):
     before = datetime.now(UTC)
 
     created, _ = await service.create_administrator(
-        email="nueva@udesa.edu.ar", handle="@nueva_admin", role=Role.MODERATOR
+        actor_id=uuid.uuid4(),
+        audit=AsyncMock(),
+        email="nueva@udesa.edu.ar",
+        handle="@nueva_admin",
+        role=Role.MODERATOR,
     )
 
     expected = before + timedelta(hours=TEMPORARY_PASSWORD_HOURS)
@@ -153,7 +173,11 @@ async def test_e5_h1_ca4_an_address_outside_the_configured_domain_is_refused(use
 
     with pytest.raises(ProblemError) as raised:
         await service.create_administrator(
-            email="externo@gmail.com", handle="@externo_01", role=Role.MODERATOR
+            actor_id=uuid.uuid4(),
+            audit=AsyncMock(),
+            email="externo@gmail.com",
+            handle="@externo_01",
+            role=Role.MODERATOR,
         )
 
     assert raised.value.status == 400
@@ -162,7 +186,11 @@ async def test_e5_h1_ca4_an_address_outside_the_configured_domain_is_refused(use
 
 async def test_e5_h1_ca4_without_a_configured_domain_any_address_goes(service):
     created, _ = await service.create_administrator(
-        email="externo@gmail.com", handle="@externo_01", role=Role.MODERATOR
+        actor_id=uuid.uuid4(),
+        audit=AsyncMock(),
+        email="externo@gmail.com",
+        handle="@externo_01",
+        role=Role.MODERATOR,
     )
 
     assert created.email == "externo@gmail.com"

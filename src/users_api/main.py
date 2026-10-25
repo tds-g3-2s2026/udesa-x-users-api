@@ -15,6 +15,7 @@ from users_api.api.admin_auth import router as admin_auth_router
 from users_api.api.admin_metrics import router as admin_metrics_router
 from users_api.api.admin_user_accounts import router as admin_user_accounts_router
 from users_api.api.admin_users import router as admin_users_router
+from users_api.api.audit import router as audit_router
 from users_api.api.auth import router as auth_router
 from users_api.api.errors import (
     problem_error_handler,
@@ -110,3 +111,5 @@ app.include_router(password_reset_router, prefix=API_PREFIX)
 app.include_router(password_change_router, prefix=API_PREFIX)
 app.include_router(profile_router, prefix=API_PREFIX)
 app.include_router(preferences_router, prefix=API_PREFIX)
+
+app.include_router(audit_router, prefix=API_PREFIX)
