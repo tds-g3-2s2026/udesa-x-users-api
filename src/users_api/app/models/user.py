@@ -71,6 +71,11 @@ class User:
     temporary_password_expires_at: datetime | None = None
     is_email_verified: bool = False
     status: AccountStatus = AccountStatus.ACTIVE
+    # Why and when `status` last changed. Only an administrator gives a reason
+    # (E5-H5); the system putting an account under review (E3-H5) leaves just
+    # the moment. Both unset on an account that never changed.
+    status_reason: str | None = None
+    status_changed_at: datetime | None = None
     deleted_at: datetime | None = None
     terms_accepted: bool = False
     terms_accepted_at: datetime | None = None
@@ -96,6 +101,17 @@ class User:
     def is_administrator(self) -> bool:
         """Moderators and superadmins get into the backoffice; users do not."""
         return self.role is not Role.USER
+
+    def change_status(
+        self, status: AccountStatus, *, at: datetime, reason: str | None = None
+    ) -> None:
+        """Move the account to `status`, recording when and, if there is one, why.
+
+        The three together, so a reason never outlives the status it explains.
+        """
+        self.status = status
+        self.status_reason = reason
+        self.status_changed_at = at
 
     def temporary_password_expired(self, now: datetime) -> bool:
         """A temporary password nobody used in time is no longer a credential.
