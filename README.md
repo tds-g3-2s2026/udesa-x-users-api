@@ -46,6 +46,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
 | `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
 | `POST /internal/users/{id}/review` | Pone la cuenta en revisión y revoca todas sus sesiones y todos sus refresh tokens. Fuera de `/api`, así que el gateway no la expone: la llama `posts-api` por la red del cluster ([ADR-011](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-011-denuncias-y-cuenta-en-revision.md)). Exige el header `X-Internal-Token`; sin él o con otro valor responde `401`. Llamarla de nuevo responde `204` y no cambia nada |
+| `DELETE /internal/users/{id}/review` | Levanta la revisión cuando el backoffice descarta o resuelve el caso: la cuenta vuelve a `active` y queda el instante del cambio. Una cuenta activa o suspendida no cambia, y llamarla de nuevo tampoco. Las sesiones revocadas no vuelven: el dueño inicia sesión de nuevo. Una cuenta inexistente responde `404`. Fuera de `/api` y con `X-Internal-Token`, como la anterior. La llama `posts-api` (E5-H7, [ADR-020](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-020-cierre-de-casos-de-denuncias.md)) |
 | `GET /internal/users/{id}/profile` | Devuelve la parte pública de una cuenta: `id`, `handle`, `display_name`, `bio` y `created_at`, nunca el email. La llama `posts-api` para armar el perfil de otro usuario (E2-H14). Una cuenta inexistente o eliminada responde `404`. Exige el mismo `X-Internal-Token` que la ruta anterior |
 | `GET /admin/users/search?q=&cursor=` | Busca cuentas de la app cuyo email o handle contengan `q` (sin distinguir mayúsculas, con `%` y `_` como texto literal). Mínimo 3 caracteres, si no `422`. Veinte por página, de la más nueva a la más vieja, con `next_cursor` para la siguiente. Deja afuera administradores y cuentas borradas. Cualquier administrador (E5-H4) |
 | `GET /admin/users/{id}` | Detalle de una cuenta de la app para el backoffice: `email`, `handle`, `display_name`, `status`, `status_reason`, `status_changed_at`, `is_email_verified` y `created_at`. Una cuenta inexistente, borrada o de un administrador responde `404`. Los contadores de seguidores y posts los da `posts-api`. Cualquier administrador (E5-H4) |
@@ -55,8 +56,10 @@ Una cuenta en revisión no puede iniciar sesión: el login responde `403` con el
 `account-under-review` y un mensaje propio, distinto del de `account-suspended`. Los tokens que ya
 tenía dejan de servir al instante, también en `posts-api`, que lee las mismas marcas de revocación
 de Redis ([ADR-014](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-014-revocacion-de-sesiones-en-posts-api.md)).
-Salir de revisión le toca al backoffice (`E5-H7`). Una cuenta suspendida no pasa a revisión: la
-decisión del administrador pesa más, y su motivo no se pisa.
+La revisión se levanta cuando un administrador descarta o resuelve el caso desde el backoffice
+(`E5-H7`): `posts-api` llama a `DELETE /internal/users/{id}/review` y la cuenta vuelve a entrar.
+Una cuenta suspendida no pasa a revisión, y levantar la revisión no la toca: la decisión del
+administrador pesa más, y su motivo no se pisa.
 
 **Refresh tokens.** El access token dura `ACCESS_TOKEN_MINUTES`; el refresh token mantiene la sesión
 abierta hasta `REFRESH_TOKEN_DAYS` sin pedir las credenciales de nuevo. Es opaco y en la base solo
