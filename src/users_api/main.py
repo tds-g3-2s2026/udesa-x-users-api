@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib.metadata import version
 
 from fastapi import FastAPI
@@ -29,8 +30,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.security import load_signing_key
 from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
-from users_api.infrastructure.email.console import ConsoleEmailSender
-from users_api.infrastructure.email.resend import ResendEmailSender
+from users_api.infrastructure.rabbitmq.outbox_publisher import OutboxPublisher
 from users_api.infrastructure.telemetry import export, instrument
 
 
@@ -41,8 +41,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     # Uvicorn only configures its own loggers and leaves the root at WARNING, so
-    # without this every logger.info in the service is dropped, including the
-    # links written by the email adapter.
+    # without this every logger.info in the service is dropped.
     logging.basicConfig(
         level=settings.log_level,
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
@@ -56,13 +55,20 @@ async def lifespan(app: FastAPI):
     app.state.session_factory = build_session_factory(app.state.engine)
     app.state.redis = Redis.from_url(settings.redis_url)
     app.state.signing_key = load_signing_key(settings.jwt_private_key)
-    if settings.email_provider == "resend":
-        app.state.email_sender = ResendEmailSender(
-            api_key=settings.resend_api_key, sender=settings.email_from
-        )
-    else:
-        app.state.email_sender = ConsoleEmailSender()
+
+    # A task and not an await: RabbitMQ being down must never keep the API from
+    # starting. The publisher retries on its own and the events wait in the outbox.
+    publisher = OutboxPublisher(
+        session_factory=app.state.session_factory,
+        database_url=settings.database_url,
+        rabbitmq_url=settings.rabbitmq_url,
+        poll_seconds=settings.outbox_poll_seconds,
+    )
+    app.state.outbox_publisher = asyncio.create_task(publisher.run())
     yield
+    app.state.outbox_publisher.cancel()
+    with suppress(asyncio.CancelledError):
+        await app.state.outbox_publisher
     await app.state.engine.dispose()
     await app.state.redis.aclose()
 

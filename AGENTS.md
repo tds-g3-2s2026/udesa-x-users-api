@@ -2,7 +2,7 @@
 
 <!-- INICIO BLOQUE PROPIO - completado en cada servicio -->
 
-Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, recuperación de contraseña y perfiles. Cubre E1-H1 a H14, más E5-H1, E5-H2 y E5-H9.
+Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, recuperación de contraseña y perfiles. No manda emails: publica los eventos de cuenta por RabbitMQ (outbox) y `notifications-api` los envía. Cubre E1-H1 a H14, más E5-H1, E5-H2 y E5-H9.
 
 ## Stack y herramientas
 
@@ -10,6 +10,7 @@ Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, r
 - Gestor de paquetes: uv
 - Persistencia y migraciones: PostgreSQL (SQLAlchemy 2 async con asyncpg) / Alembic
 - Cache y estado efímero: Redis (revocación de JWT, lockout de intentos fallidos) — no Valkey, ver `ARQUITECTURA.md`
+- Mensajería: RabbitMQ con aio-pika (publicación de eventos, patrón outbox)
 
 ## Checks y comandos
 
@@ -19,7 +20,7 @@ No hay `scripts/lint.sh` ni `scripts/test.sh` en este repo todavía: los comando
 uv run ruff check .                                    # Lint
 uv run ruff format --check .                           # Formato
 uv run pytest tests/unit --cov=src --cov-report=term   # Tests unitarios con cobertura
-uv run pytest --cov=src --cov-report=term              # + tests/integration, requiere DATABASE_URL y REDIS_URL
+uv run pytest --cov=src --cov-report=term              # + tests/integration, requiere DATABASE_URL, REDIS_URL y RABBITMQ_URL
                                                         # (levantar con docker/docker-compose.dev.yml)
 ```
 
@@ -27,14 +28,15 @@ uv run pytest --cov=src --cov-report=term              # + tests/integration, re
 
 ## Arquitectura y particularidades locales
 
-- El código se organiza por capa, según el ADR-007 de `udesa-x-platform`: `api/` expone las rutas, sus esquemas y el wiring; `app/` tiene el negocio (`models/`, `repositories/`, `clients/`, `services/`); `config/` la configuración; `infrastructure/` las implementaciones agrupadas por tecnología. No se agrupa por feature: las historias de este servicio comparten la entidad `User`, y agruparlas dejaría a una carpeta siendo dueña de ella.
+- El código se organiza por capa, según el ADR-007 de `udesa-x-platform`: `api/` expone las rutas, sus esquemas y el wiring; `app/` tiene el negocio (`models/`, `repositories/`, `services/`, `events.py`); `config/` la configuración; `infrastructure/` las implementaciones agrupadas por tecnología. No se agrupa por feature: las historias de este servicio comparten la entidad `User`, y agruparlas dejaría a una carpeta siendo dueña de ella.
 - **La regla que ordena todo: `app/` no importa nada de `api/` ni de `infrastructure/`.** Se verifica leyendo imports. Hoy en `app/` no aparecen las palabras `sqlalchemy`, `redis` ni `fastapi`, y tiene que seguir así.
-- Los servicios piden lo que necesitan a través de interfaces. En `app/repositories/` van las de todo lo que almacena estado, sin importar si detrás hay PostgreSQL o Redis; en `app/clients/`, las de lo que habla con un tercero. Al agregar una capacidad nueva: la interfaz en `app/`, la clase concreta en `infrastructure/`, y el cable en `api/deps.py`, que es el único módulo que conoce las implementaciones.
+- Los servicios piden lo que necesitan a través de interfaces. En `app/repositories/` van las de todo lo que almacena estado, sin importar si detrás hay PostgreSQL o Redis; si aparece una interfaz de lo que habla con un tercero, va en `app/clients/` (hoy no hay ninguna: los emails los manda `notifications-api`). Al agregar una capacidad nueva: la interfaz en `app/`, la clase concreta en `infrastructure/`, y el cable en `api/deps.py`, que es el único módulo que conoce las implementaciones.
 - Las tablas viven en `infrastructure/database/models.py`, que es lo que importa `migrations/env.py`. Un modelo que no esté ahí hace que `autogenerate` proponga borrar la tabla.
-- **Una sola migración mientras no haya un deploy real (`migrations/versions/0001_esquema_actual.py`).** Sin una base con datos vivos, no hay nada que una migración incremental esté protegiendo: un cambio de esquema se EDITA en ese mismo archivo, no se agrega una `0002_...` nueva. El día que exista un primer deploy, esa migración pasa a ser la base fija y ahí sí arrancan las incrementales.
-- Tests en `tests/unit/` y `tests/integration/`; `tests/conftest.py` aplica las migraciones de Alembic contra la base real y limpia tablas/Redis entre tests (`clean_state`). La suite de integración se salta sola si no hay `DATABASE_URL`/`REDIS_URL`.
+- **Migraciones incrementales.** Hay un deploy real, así que `0001_esquema_actual.py` es la base fija y cada cambio de esquema suma una migración nueva (`0002_...`, `0003_...`, `0004_outbox.py`). Editar una ya aplicada no llega a la base de producción.
+- **Los emails no salen de acá: se publican como eventos.** Los servicios de `app/services/` escriben el evento (`app/events.py`) en el outbox con `OutboxRepository`, dentro de la transacción del request; el publicador (`infrastructure/rabbitmq/`, una tarea del `lifespan`) lo manda a RabbitMQ y borra la fila al confirmar el broker. `verification_url` y `token` de los eventos son secretos: nunca se loguea un payload, solo `id` y `type`.
+- Tests en `tests/unit/` y `tests/integration/`; `tests/conftest.py` aplica las migraciones de Alembic contra la base real y limpia tablas/Redis entre tests (`clean_state`). La suite de integración se salta sola si no hay `DATABASE_URL`/`REDIS_URL`/`RABBITMQ_URL`; el fixture `api` apunta el publicador a un broker inalcanzable para que los eventos queden en el outbox, y los tests del publicador usan el RabbitMQ real.
 - **Identificadores de historia (`E1-H13`, `CA.4`, etc.): solo en el nombre de la función de test**, como pide "Trazabilidad de criterios de aceptación" en `CONVENCIONES.md` (formato `test_e1_h13_ca4_...`). No van en código de producción (`src/`) ni en el docstring o los comentarios del propio archivo de test: ahí se explica el porqué de la regla, no su número. Un identificador que se cuela en un comentario de `src/` sobrevive a un refactor de la historia que lo puso; el nombre del test es el único lugar donde vale la pena que quede fijo, porque es lo que se filtra en la defensa.
-- `contracts/events/` es una copia de `udesa-x-platform/docs/eventos/` con los eventos que este servicio publica (ADR-017 de platform). No se edita acá: se cambia en platform y se trae con su `scripts/sync-contracts.sh`. El job `Contratos de eventos al dia` del CI falla si la copia difiere. Los tests del publicador validan contra estos esquemas el mensaje que arman.
+- `contracts/events/` es una copia de `udesa-x-platform/docs/eventos/` con los eventos que este servicio publica (ADR-017 de platform). No se edita acá: se cambia en platform y se trae con su `scripts/sync-contracts.sh`. El job `Contratos de eventos al dia` del CI falla si la copia difiere. Los tests validan contra estos esquemas cada evento que arma el servicio y el mensaje que entrega el publicador.
 - Documentación general del sistema: consultar `../udesa-x-platform/docs/` (`ARQUITECTURA.md`, `CONVENCIONES.md`, `PLANIFICACION.md`).
 
 <!-- FIN BLOQUE PROPIO -->

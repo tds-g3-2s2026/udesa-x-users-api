@@ -4,12 +4,11 @@ Lives apart from the test modules so that the auth flow and the password reset
 flow drive the app the same way instead of each keeping its own copy.
 """
 
-import re
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
-from users_api.infrastructure.email.console import ConsoleEmailSender
+from users_api.infrastructure.database.models import OutboxModel
 
 REGISTRATION = {
     "email": "Alumno@udesa.edu.ar",
@@ -26,12 +25,11 @@ NEW_ADMINISTRATOR = {
 
 
 class Api:
-    """Drives the app and reads back the emailed links from the log."""
+    """Drives the app and reads back the links and codes from the outbox."""
 
-    def __init__(self, client, app, caplog):
+    def __init__(self, client, app):
         self.client = client
         self.app = app
-        self.caplog = caplog
 
     async def register(self, **overrides):
         return await self.client.post("/auth/register", json={**REGISTRATION, **overrides})
@@ -105,37 +103,38 @@ class Api:
             },
         )
 
-    def _mailed_text(self) -> str:
-        # Only what the console mailer wrote: the test client logs every URL it
-        # calls, and those carry tokens and links too.
-        return "\n".join(
-            record.getMessage()
-            for record in self.caplog.records
-            if record.name == ConsoleEmailSender.__module__
-        )
+    async def outbox_events(self) -> list[dict]:
+        """The envelopes waiting in the outbox, oldest first."""
+        async with self.app.state.engine.connect() as connection:
+            rows = await connection.scalars(
+                select(OutboxModel.payload).order_by(OutboxModel.created_at)
+            )
+            return list(rows)
 
-    def last_emailed_token(self) -> str:
-        # The console adapter writes what the mail would carry: the link for a
-        # verification, the bare code for a reset. This reads whichever went
-        # out last.
-        links = re.findall(r"(?:token=|limitado: )([\w\-]+)", self._mailed_text())
-        assert links, "no se encontro ningun link en el log"
-        return links[-1]
+    async def last_event(self) -> dict:
+        events = await self.outbox_events()
+        assert events, "no hay ningun evento en el outbox"
+        return events[-1]
 
-    def last_emailed_link(self) -> str:
-        """The whole URL the mail carries, not just its token."""
-        links = re.findall(r"(http://\S+)", self._mailed_text())
-        assert links, "no se encontro ningun link en el log"
-        return links[-1]
+    async def last_token(self) -> str:
+        """The token the last event carries: from the link, or the bare reset code."""
+        data = (await self.last_event())["data"]
+        if "verification_url" in data:
+            return parse_qs(urlsplit(data["verification_url"]).query)["token"][0]
+        return data["token"]
 
-    async def open_last_emailed_link(self):
-        """GET the emailed link, the way a browser opens it from the mail."""
-        link = urlsplit(self.last_emailed_link())
+    async def last_link(self) -> str:
+        """The whole URL the last event carries, not just its token."""
+        return (await self.last_event())["data"]["verification_url"]
+
+    async def open_last_link(self):
+        """GET the link, the way a browser opens it from the mail."""
+        link = urlsplit(await self.last_link())
         # The client's base URL already carries the /api prefix.
         return await self.client.get(f"{link.path.removeprefix('/api')}?{link.query}")
 
     async def verify_last(self):
-        return await self.client.post("/auth/verify", json={"token": self.last_emailed_token()})
+        return await self.client.post("/auth/verify", json={"token": await self.last_token()})
 
     async def register_and_verify(self, **overrides):
         await self.register(**overrides)

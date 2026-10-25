@@ -7,8 +7,8 @@ from sqlalchemy import text
 from tests.integration.helpers import REGISTRATION, set_user_flag
 
 pytestmark = pytest.mark.skipif(
-    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL"),
-    reason="requires DATABASE_URL and REDIS_URL pointing at real services",
+    not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
+    reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
 
 
@@ -227,7 +227,7 @@ async def test_errors_follow_the_problem_details_format(api):
     assert body["instance"] == "/api/auth/login"
 
 
-async def test_e1_h1_ca1_opening_the_emailed_link_verifies_the_account(api):
+async def test_e1_h1_ca1_opening_the_queued_link_verifies_the_account(api):
     """The link is built by hand, so only opening it proves the route behind it.
 
     It broke once already: the endpoints moved under /api and the link stayed
@@ -235,17 +235,17 @@ async def test_e1_h1_ca1_opening_the_emailed_link_verifies_the_account(api):
     """
     await api.register()
 
-    response = await api.open_last_emailed_link()
+    response = await api.open_last_link()
 
     assert response.status_code == 200
     assert (await api.login()).status_code == 200
 
 
-async def test_e1_h1_ca1_reopening_the_emailed_link_still_reports_the_account_verified(api):
+async def test_e1_h1_ca1_reopening_the_queued_link_still_reports_the_account_verified(api):
     await api.register()
-    await api.open_last_emailed_link()
+    await api.open_last_link()
 
-    response = await api.open_last_emailed_link()
+    response = await api.open_last_link()
 
     assert response.status_code == 200
     assert response.json()["status"] == "verified"

@@ -15,11 +15,11 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "alembic>=1.14",
     "nh3>=0.3.7",
-    "resend[async]>=2.47",
     "opentelemetry-sdk>=1.45.0",
     "opentelemetry-exporter-otlp-proto-http>=1.45.0",
     "opentelemetry-instrumentation-fastapi>=0.66b0",
     "opentelemetry-instrumentation-logging>=0.66b0",
+    "aio-pika>=10.1.1",
 ]
 
 [dependency-groups]
@@ -29,6 +29,7 @@ dev = [
     "pytest-cov>=6.0",
     "httpx>=0.28",
     "ruff>=0.9",
+    "jsonschema[format-nongpl]>=4.26.0",
 ]
 
 [build-system]

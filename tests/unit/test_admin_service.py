@@ -20,6 +20,7 @@ def build_settings(**overrides) -> Settings:
     return Settings(
         database_url="postgresql+asyncpg://unused",
         redis_url="redis://unused",
+        rabbitmq_url="amqp://unused",
         **overrides,
     )
 

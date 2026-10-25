@@ -1,7 +1,5 @@
 from functools import lru_cache
-from typing import Literal
 
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +12,7 @@ class Settings(BaseSettings):
     # instead of failing on the first request.
     database_url: str
     redis_url: str
+    rabbitmq_url: str
 
     # Shared with the other services that call the routes under `/internal`,
     # which sits outside `/api` and is never exposed by the gateway. No default
@@ -79,25 +78,16 @@ class Settings(BaseSettings):
     # Base for the links sent by email.
     public_base_url: str = "http://localhost:8000"
 
-    # "console" writes each mail to the log and is what development and the
-    # tests run on; "resend" delivers it.
-    email_provider: Literal["console", "resend"] = "console"
-    resend_api_key: str | None = None
-    # Its domain has to be verified in Resend.
-    email_from: str = "UdeSA-X <no-reply@udesax.app>"
+    # How often the outbox publisher looks for pending events on its own. A
+    # NOTIFY from the database wakes it sooner; this is the safety net for when
+    # that connection is lost, and the pause between retries while RabbitMQ is down.
+    outbox_poll_seconds: float = 5
 
     log_level: str = "INFO"
 
     # Telemetry leaves the pod only when this is set. The exporters read it, and
     # the rest of the OTEL_EXPORTER_OTLP_* variables, on their own.
     otel_exporter_otlp_endpoint: str | None = None
-
-    @model_validator(mode="after")
-    def require_provider_key(self) -> "Settings":
-        # Refusing to start beats a deployment that silently never sends mail.
-        if self.email_provider == "resend" and not self.resend_api_key:
-            raise ValueError("EMAIL_PROVIDER=resend requires RESEND_API_KEY")
-        return self
 
 
 # Every endpoint reachable from outside hangs under this prefix: the cluster has

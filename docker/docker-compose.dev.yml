@@ -7,14 +7,10 @@ services:
       dockerfile: docker/Dockerfile
     ports:
       - "8000:8000"
-    # The image leaves .env out, so this is how a local Resend key reaches the
-    # service. Without the file it keeps the console mailer.
-    env_file:
-      - path: ../.env
-        required: false
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://users:users@rabbitmq:5672
       PUBLIC_BASE_URL: http://localhost:8000
       # First superadmin credentials, development only. Production gets them
       # through GitHub Secrets. The seed does nothing when the account already exists.
@@ -35,6 +31,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   # No source volume on purpose: mounting it would replace what the image
   # carries and stop testing the real artifact.
@@ -46,11 +44,14 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://users:users@postgres:5432/users
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://users:users@rabbitmq:5672
       INTERNAL_API_TOKEN: test-internal-token
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     # Without this it would start on every `docker compose up`.
     profiles: ["test"]
@@ -80,6 +81,21 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: users
+      RABBITMQ_DEFAULT_PASS: users
+    # Only on loopback: the broker has no business being reachable from the network.
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
       retries: 10
 
 volumes:

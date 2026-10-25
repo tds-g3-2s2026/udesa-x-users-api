@@ -20,9 +20,9 @@ from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -37,6 +37,7 @@ from users_api.config.settings import API_PREFIX, Settings
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
+from users_api.infrastructure.database.outbox_repository import SqlAlchemyOutboxRepository
 from users_api.infrastructure.database.password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
 )
@@ -66,10 +67,6 @@ def get_signing_key(request: Request) -> object:
     return request.app.state.signing_key
 
 
-def get_email_sender(request: Request) -> EmailSender:
-    return request.app.state.email_sender
-
-
 def get_rate_limiter(request: Request) -> RateLimiter:
     return RedisRateLimiter(redis=request.app.state.redis)
 
@@ -94,9 +91,14 @@ def get_refresh_token_repository(session: SessionDep) -> RefreshTokenRepository:
     return SqlAlchemyRefreshTokenRepository(session=session)
 
 
+def get_outbox_repository(session: SessionDep) -> OutboxRepository:
+    # The session of the request: the event is written in the same transaction
+    # as the change it describes.
+    return SqlAlchemyOutboxRepository(session=session)
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SigningKeyDep = Annotated[object, Depends(get_signing_key)]
-EmailSenderDep = Annotated[EmailSender, Depends(get_email_sender)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
 SessionStoreDep = Annotated[SessionStore, Depends(get_session_store)]
 UserRepositoryDep = Annotated[UserRepository, Depends(get_user_repository)]
@@ -107,6 +109,7 @@ ResetTokenRepositoryDep = Annotated[
     PasswordResetTokenRepository, Depends(get_reset_token_repository)
 ]
 RefreshTokenRepositoryDep = Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)]
+OutboxRepositoryDep = Annotated[OutboxRepository, Depends(get_outbox_repository)]
 
 
 # Rejects a missing or malformed Authorization header before anything else runs.

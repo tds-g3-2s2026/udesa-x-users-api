@@ -14,10 +14,10 @@ from unittest.mock import AsyncMock
 import jwt
 import pytest
 
-from users_api.app.clients.email import EmailSender
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import RefreshToken
 from users_api.app.models.user import AccountStatus, Role, User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -124,9 +124,10 @@ def service(users, tokens, sessions, signing_key) -> AuthService:
         settings=Settings(
             database_url="postgresql+asyncpg://unused",
             redis_url="redis://unused",
+            rabbitmq_url="amqp://unused",
         ),
         signing_key=signing_key,
-        email_sender=AsyncMock(spec=EmailSender),
+        outbox=AsyncMock(spec=OutboxRepository),
     )
 
 

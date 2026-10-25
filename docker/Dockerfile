@@ -21,6 +21,9 @@ FROM builder AS test
 # Without --no-dev: pytest and the test tooling land in the same venv.
 RUN uv sync --locked
 COPY tests/ ./tests/
+# The event schemas the tests validate against (ADR-017). Production does not
+# read them, so they stay out of the final stage.
+COPY contracts/ ./contracts/
 
 # Same privileges as production: as root, a permission bug shows up after deploy.
 RUN useradd --create-home --uid 1000 app && chown -R app:app /app

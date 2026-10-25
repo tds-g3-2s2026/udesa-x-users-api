@@ -5,10 +5,11 @@ from typing import NoReturn
 
 import jwt
 
-from users_api.app.clients.email import EmailSender
+from users_api.app import events
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken, RefreshToken
 from users_api.app.models.user import AccountStatus, User
+from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
 from users_api.app.repositories.tokens import (
@@ -127,7 +128,7 @@ class AuthService:
     """Registration, login and logout.
 
     Everything it needs from the outside arrives as an interface, so this class
-    never names a database, a cache or a mail provider. That is what makes it
+    never names a database, a cache or a broker. That is what makes it
     testable without infrastructure and movable without a rewrite.
     """
 
@@ -138,7 +139,7 @@ class AuthService:
     sessions: SessionStore
     settings: Settings
     signing_key: object
-    email_sender: EmailSender
+    outbox: OutboxRepository
 
     async def register(self, *, email: str, handle: str, password: str) -> User:
         # Normalising before storing is what makes uniqueness case-insensitive,
@@ -168,10 +169,18 @@ class AuthService:
             )
         )
 
-        await self.issue_verification_token(user, now=now)
+        verification_url = await self.issue_verification_token(user, now=now)
+        await self.outbox.add(
+            events.user_registered(user, verification_url=verification_url, now=now)
+        )
         return user
 
     async def issue_verification_token(self, user: User, *, now: datetime) -> str:
+        """Store a new token and return the link that carries it.
+
+        The caller decides which event announces the link: creating the account and
+        asking for a new link are not the same thing for whoever consumes them.
+        """
         raw_token = generate_emailed_token()
         await self.verification_tokens.add(
             EmailVerificationToken(
@@ -181,11 +190,7 @@ class AuthService:
                 expires_at=now + timedelta(hours=self.settings.email_verification_hours),
             )
         )
-        verification_url = (
-            f"{self.settings.public_base_url}{API_PREFIX}/auth/verify?token={raw_token}"
-        )
-        await self.email_sender.send_verification(to=user.email, verification_url=verification_url)
-        return raw_token
+        return f"{self.settings.public_base_url}{API_PREFIX}/auth/verify?token={raw_token}"
 
     async def verify_email(self, raw_token: str) -> User:
         now = datetime.now(UTC)
@@ -221,7 +226,11 @@ class AuthService:
         user = await self.users.find_by_email(email.strip().lower())
         if user is None or user.is_email_verified or not user.can_log_in:
             return
-        await self.issue_verification_token(user, now=datetime.now(UTC))
+        now = datetime.now(UTC)
+        verification_url = await self.issue_verification_token(user, now=now)
+        await self.outbox.add(
+            events.email_verification_requested(user, verification_url=verification_url, now=now)
+        )
 
     @property
     def app_login_policy(self) -> LoginPolicy:

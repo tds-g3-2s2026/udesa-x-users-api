@@ -2,10 +2,12 @@ import os
 
 import pytest
 
-# Integration tests need PostgreSQL and Redis. docker/docker-compose.dev.yml
-# provides both; without the variables the whole integration suite is skipped so
+# Integration tests need PostgreSQL, Redis and RabbitMQ. docker/docker-compose.dev.yml
+# provides all three; without the variables the whole integration suite is skipped so
 # the unit tests still run on any machine.
-HAS_SERVICES = bool(os.getenv("DATABASE_URL") and os.getenv("REDIS_URL"))
+HAS_SERVICES = bool(
+    os.getenv("DATABASE_URL") and os.getenv("REDIS_URL") and os.getenv("RABBITMQ_URL")
+)
 
 # Required by Settings, with no default. A fixed value so the tests of the
 # internal routes know what to send; CI and the compose may set their own.
@@ -53,12 +55,16 @@ async def clean_state():
         await connection.execute(
             text(
                 "TRUNCATE users, email_verification_tokens, password_reset_tokens, "
-                "refresh_tokens CASCADE"
+                "refresh_tokens, outbox CASCADE"
             )
         )
     await redis.flushdb()
 
     yield
 
+    # Events left behind would reach a real consumer if one is bound to the
+    # broker the suite points at, or be published by the next lifespan.
+    async with engine.begin() as connection:
+        await connection.execute(text("TRUNCATE outbox"))
     await engine.dispose()
     await redis.aclose()

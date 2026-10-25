@@ -2,7 +2,7 @@
 
 Microservicio backend responsable de la gestión de identidades, registro de usuarios, edición de perfiles, inicio de sesión (incluyendo Social Login) y seguridad.
 
-**Stack:** Python 3.13, FastAPI, SQLAlchemy 2 async con asyncpg, PostgreSQL y Redis. Gestión de dependencias con uv, linting con Ruff.
+**Stack:** Python 3.13, FastAPI, SQLAlchemy 2 async con asyncpg, PostgreSQL, Redis y RabbitMQ (aio-pika). Gestión de dependencias con uv, linting con Ruff.
 
 ## Levantarlo en desarrollo
 
@@ -10,8 +10,8 @@ Microservicio backend responsable de la gestión de identidades, registro de usu
 docker compose -f docker/docker-compose.dev.yml up --build
 ```
 
-Levanta el servicio junto con PostgreSQL y Redis, aplica las migraciones y siembra el primer
-superadmin (`admin@udesa.edu.ar` / `Admin1234`, solo para desarrollo). Cuando los tres estén arriba:
+Levanta el servicio junto con PostgreSQL, Redis y RabbitMQ, aplica las migraciones y siembra el primer
+superadmin (`admin@udesa.edu.ar` / `Admin1234`, solo para desarrollo). Cuando estén arriba:
 
 ```bash
 curl http://localhost:8000/healthcheck
@@ -26,10 +26,10 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | Método y ruta | Qué hace |
 |---|---|
 | `GET /healthcheck` | Verifica PostgreSQL y Redis e informa la versión desplegada |
-| `POST /auth/register` | Crea la cuenta y envía el link de verificación |
+| `POST /auth/register` | Crea la cuenta y deja en el outbox el evento `user.registered.v1`, con el link de verificación |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
-| `GET /auth/verify?token=` | Lo mismo, para el link del correo: un cliente de correo solo puede abrirlo con `GET` |
-| `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró |
+| `GET /auth/verify?token=` | Lo mismo, para el link del email: un cliente de correo solo puede abrirlo con `GET` |
+| `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró: deja en el outbox `email_verification.requested.v1` |
 | `POST /auth/login` | Devuelve el access token y un refresh token que inicia una sesión nueva. El claim `role` lleva el rol real de la cuenta |
 | `POST /auth/refresh` | Cuerpo `{"refresh_token": "..."}`. Canjea el refresh token por un access token nuevo y el siguiente refresh token, con la misma forma de respuesta que el login. Un token inválido, vencido o ya revocado responde `401` con el código `invalid-refresh-token` |
 | `POST /admin/auth/login` | Login del backoffice, con email. Solo `moderator` y `superadmin`; un usuario común recibe `403`. Tres intentos fallidos bloquean por 30 minutos |
@@ -38,9 +38,9 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `GET /admin/metrics` | Cuentas de la app verificadas y no borradas: activas (`active_users`) y en revisión (`accounts_under_review`). Cualquier administrador; un usuario común recibe `403` |
 | `POST /auth/logout` | Revoca el access token activo. Acepta un cuerpo opcional `{"refresh_token": "..."}`: si el token es de la misma cuenta, revoca toda su sesión. Un token desconocido o ajeno se ignora, y el cierre sigue respondiendo `204` |
-| `POST /auth/forgot-password` | Manda el código de recuperación, con email o handle. El usuario lo pega en la app |
+| `POST /auth/forgot-password` | Pide el código de recuperación, con email o handle: deja en el outbox `password.reset_requested.v1`. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
-| `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta |
+| `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta. Deja en el outbox `password.changed.v1` |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
@@ -66,28 +66,31 @@ reuso. Cada canje vuelve a revisar la cuenta: suspendida o en revisión responde
 de siempre (`account-suspended`, `account-under-review`). El login del backoffice
 (`POST /admin/auth/login`) no entrega refresh token.
 
-En desarrollo el correo no se envía: el adaptador de consola escribe el link en el log (ver
-[Correo](#correo) para mandarlo de verdad). Se lo saca así:
+Este servicio no manda emails: publica eventos y `notifications-api` manda el correo (ver
+[Eventos](#eventos)). En desarrollo, mientras ese servicio no esté corriendo, el link de
+verificación se saca del evento que quedó en el outbox:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml logs users-api | grep users_api.infrastructure.email.console
+docker compose -f docker/docker-compose.dev.yml exec postgres \
+  psql -U users -d users -c "SELECT payload->'data'->>'verification_url' FROM outbox ORDER BY created_at DESC LIMIT 1"
 ```
 
 La documentación interactiva queda en `http://localhost:8000/docs`.
 
 ## Configuración
 
-Variables de entorno que lee el servicio, además de `DATABASE_URL`, `REDIS_URL` e
-`INTERNAL_API_TOKEN`. Las tres son obligatorias: sin ellas el servicio no arranca.
+Variables de entorno que lee el servicio, además de `DATABASE_URL`, `REDIS_URL`,
+`RABBITMQ_URL` e `INTERNAL_API_TOKEN`. Las cuatro son obligatorias: sin ellas el servicio no arranca.
 `INTERNAL_API_TOKEN` es el secreto que comparte con `posts-api` para las rutas de `/internal`, y
-tiene que tener el mismo valor en los dos servicios.
+tiene que tener el mismo valor en los dos servicios. `RABBITMQ_URL` es la URL AMQP del broker
+(`amqp://usuario:clave@host:5672`) y lleva credenciales: es un secreto.
 
 | Variable | Default | Para qué |
 |---|---|---|
 | `JWT_PRIVATE_KEY` | efímera | Clave Ed25519 en PEM. Sin definir, se genera una por arranque |
 | `JWT_ISSUER` | `users-api` | Emisor incluido en el claim `iss` de los tokens |
 | `LOG_LEVEL` | `INFO` | Nivel de log |
-| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links enviados por correo: el host solo, sin `/api` |
+| `PUBLIC_BASE_URL` | `http://localhost:8000` | Base de los links de verificación que viajan en los eventos: el host solo, sin `/api` |
 | `ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
 | `REFRESH_TOKEN_DAYS` | `7` | Vida del refresh token, y por lo tanto cuánto dura una sesión sin volver a pedir las credenciales |
 | `LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES` | `5` / `15` | Bloqueo del login de la app |
@@ -96,30 +99,54 @@ tiene que tener el mismo valor en los dos servicios.
 | `SUPERADMIN_HANDLE` | `@superadmin` | Handle de esa cuenta: la columna es obligatoria y única |
 | `CORS_ALLOWED_ORIGINS` | `[]` | Orígenes de browser permitidos, como lista JSON. Vacío bloquea a todos; mobile no lo necesita, el backoffice sí |
 | `ADMINISTRATOR_EMAIL_DOMAIN` | sin definir | Dominio al que tiene que pertenecer el correo de un administrador nuevo. Vacío significa sin restricción |
-| `EMAIL_PROVIDER` | `console` | `console` escribe cada correo en el log; `resend` lo entrega de verdad |
-| `RESEND_API_KEY` | sin definir | Clave de la API de Resend. Obligatoria con `EMAIL_PROVIDER=resend`: sin ella el servicio no arranca |
-| `EMAIL_FROM` | `UdeSA-X <no-reply@udesax.app>` | Remitente de todos los correos. Su dominio tiene que estar verificado en Resend |
+| `OUTBOX_POLL_SECONDS` | `5` | Cada cuánto busca el publicador eventos pendientes por su cuenta. Es la red de seguridad si se pierde el `LISTEN`, y la pausa entre reintentos mientras RabbitMQ está caído |
 
-## Correo
+## Eventos
 
-El proveedor es **Resend**, con el dominio `udesax.app` verificado. Sin un dominio verificado,
-Resend solo entrega a la dirección dueña de la cuenta. El plan gratuito permite 100 correos
-por día y 3.000 por mes.
+Los emails de cuenta (verificación, recuperación de contraseña, aviso de cambio) no salen de este
+servicio. `users-api` publica un evento por cada uno y `notifications-api` lo consume y manda el
+correo ([ADR-010](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-010-proveedor-de-correo.md),
+[ADR-017](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-017-forma-y-versionado-de-eventos.md)).
+Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no se edita acá.
 
-En desarrollo y en los tests se usa el adaptador de consola: los tests de integración leen el
-token del log, y así ninguna corrida manda correo de verdad. Para probar la entrega real en
-local, poné la clave en un `.env` en la raíz del repo, que no se versiona y que el compose de
-desarrollo le pasa al servicio:
+| `type` | Cuándo | `data` |
+|---|---|---|
+| `user.registered.v1` | `POST /auth/register` crea la cuenta | `user_id`, `email`, `handle`, `verification_url` |
+| `email_verification.requested.v1` | `POST /auth/resend-verification` sobre una cuenta sin verificar. No repite `user.registered`: la cuenta no se creó de nuevo | `user_id`, `email`, `verification_url` |
+| `password.reset_requested.v1` | `POST /auth/forgot-password` sobre una cuenta que existe y puede entrar | `user_id`, `email`, `token` |
+| `password.changed.v1` | `POST /me/change-password` cambia la contraseña | `user_id`, `email` |
 
-```bash
-EMAIL_PROVIDER=resend
-RESEND_API_KEY=re_...
-```
+Cada evento es un sobre CloudEvents 1.0 (`specversion`, `id`, `source: users-api`, `type`, `time`,
+`data`). El `id` es un UUID nuevo y es la clave de idempotencia del consumidor.
 
-Un fallo del proveedor no rompe la operación que disparó el correo. La cuenta queda creada, o
-la contraseña cambiada, y el error queda en el log sin el link, porque el link es una
-credencial de un solo uso. Si el correo de verificación no llegó, se pide otro con
-`POST /auth/resend-verification`.
+**Outbox.** El evento no se publica dentro del request: se inserta en la tabla `outbox` con la
+misma sesión, así que se confirma o se revierte junto con el cambio que lo causó. Una cuenta sin su
+evento, o un evento de una cuenta que no se creó, no pueden existir. Las filas guardan el sobre
+completo en `payload` (`jsonb`).
+
+**Publicador.** Corre como una tarea de asyncio dentro del proceso, arrancada en el `lifespan` y
+cancelada al apagar (`infrastructure/rabbitmq/`). Se despierta con `LISTEN outbox` sobre una conexión
+asyncpg propia, que dispara el trigger de la tabla en cada INSERT, y además revisa cada
+`OUTBOX_POLL_SECONDS` por si el `LISTEN` se perdió. En cada pasada toma hasta 100 filas con
+`FOR UPDATE SKIP LOCKED`, las publica en el exchange `udesa-x.events` (`topic`, durable) con la
+routing key igual al `type`, y **borra cada fila apenas el broker confirma**. Publica con
+`mandatory` y confirms del publicador: si ninguna cola está ligada (por ejemplo, `notifications-api`
+nunca arrancó), el broker devuelve el mensaje y esa fila queda pendiente sin frenar a las que vienen
+atrás. Si el broker no está, la pasada se corta y lo ya confirmado se guarda; el resto espera a la
+siguiente.
+
+La entrega es al menos una vez: si el proceso cae entre la confirmación y el borrado, el evento se
+publica de nuevo y el consumidor lo descarta por su `id`.
+
+RabbitMQ caído no tumba nada. La API arranca y responde igual, el publicador reintenta solo y los
+eventos esperan en el outbox hasta que el broker vuelva. Mientras tanto no se mandan emails.
+
+`verification_url` y `token` son secretos: ni el publicador ni el servicio los loguean. En los logs
+del publicador aparecen solo el `id` y el `type` del evento.
+
+En desarrollo el compose levanta `rabbitmq:4-management-alpine` (usuario `users`, clave `users`),
+con la consola de administración en `http://localhost:15672` y los puertos publicados solo en
+`127.0.0.1`.
 
 ## Despliegue en Kubernetes
 
@@ -138,13 +165,12 @@ aplicar el Deployment. Kubernetes no expande estas variables. Qué hace paso por
 el README de `udesa-x-platform`, sección "Despliegue continuo".
 
 Copiar `k8s/secret.template.yaml` a `k8s/secret.yaml`, ignorado por git, y completar
-`DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL` y
+`DATABASE_URL` (PostgreSQL con `postgresql+asyncpg://`), `REDIS_URL`,
 `JWT_PRIVATE_KEY` (PEM Ed25519, usando un bloque YAML `|` para conservar los saltos),
-`RESEND_API_KEY` e `INTERNAL_API_TOKEN`. Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus
+`RABBITMQ_URL` e `INTERNAL_API_TOKEN`. Nunca aplicar la plantilla vacía sobre un Secret real: sobrescribiría sus
 valores. El pipeline arma el Secret real con los GitHub Secrets `DATABASE_URL`, `REDIS_URL`,
-`JWT_PRIVATE_KEY`, `INTERNAL_API_TOKEN` y `RESEND_API_KEY`; este último es de la organización, para que otro
-servicio pueda usar la misma clave. El ConfigMap fija `EMAIL_PROVIDER=resend`, así que sin
-`RESEND_API_KEY` el pipeline corta antes de tocar el cluster. `envFrom` inyecta las
+`RABBITMQ_URL`, `JWT_PRIVATE_KEY` e `INTERNAL_API_TOKEN`; sin alguno de ellos el pipeline corta antes
+de tocar el cluster. `envFrom` inyecta las
 variables al crear el contenedor: el pipeline pone el hash del ConfigMap y del Secret en el
 pod template, así que un cambio solo de configuración también reemplaza los pods. Los integrantes conservan acceso de solo
 lectura al cluster.
@@ -214,6 +240,10 @@ migración ya aplicada no llega a la base de producción: Alembic la da por corr
 revocación). Es una tabla nueva y no toca datos existentes: quien tenía una sesión abierta la
 conserva hasta que venza su access token, y el próximo login le entrega su primer refresh token.
 
+`0004_outbox.py` crea la tabla `outbox` (`id` del evento, `type`, `payload` con el sobre completo y
+`created_at`, con índice por `created_at`) y un trigger `AFTER INSERT` que hace
+`pg_notify('outbox', id)` para despertar al publicador. Es una tabla nueva: no toca datos existentes.
+
 ## Correr los tests
 
 ```bash
@@ -224,13 +254,17 @@ uv run pytest tests/unit
 Los de integración necesitan las dependencias reales levantadas:
 
 ```bash
-docker compose -f docker/docker-compose.dev.yml up -d postgres redis
+docker compose -f docker/docker-compose.dev.yml up -d postgres redis rabbitmq
 DATABASE_URL=postgresql+asyncpg://users:users@localhost:5432/users \
 REDIS_URL=redis://localhost:6379/0 \
+RABBITMQ_URL=amqp://users:users@localhost:5672 \
 uv run pytest tests/integration
 ```
 
-Sin esas variables los de integración se saltean, para que la suite corra en cualquier máquina.
+Los tests del publicador hablan con el RabbitMQ real: ligan una cola temporal al exchange y
+verifican que el mensaje llega con el contrato y que la fila se borra. Los demás tests de
+integración apuntan el publicador de la app a un broker inalcanzable, para que los eventos queden
+en el outbox y se puedan leer. Sin esas variables los de integración se saltean, para que la suite corra en cualquier máquina.
 
 Los de integración aplican la migración real antes de correr, así que también verifican que el
 esquema coincida con los modelos: una columna agregada sin su migración falla acá y no en
@@ -244,7 +278,7 @@ máquina. El `Dockerfile` tiene un stage `test` que suma las dependencias de des
 carpeta `tests/` sobre el mismo build que va a producción.
 
 Para reproducirlo hay un servicio en el compose que construye ese stage y lo corre contra
-PostgreSQL y Redis, esperando a que estén sanos:
+PostgreSQL, Redis y RabbitMQ, esperando a que estén sanos:
 
 ```bash
 docker compose -f docker/docker-compose.dev.yml run --rm --build tests
@@ -254,7 +288,7 @@ Ese servicio **no monta el código como volumen** a propósito. Montarlo reempla
 adentro de la imagen por lo que hay en el disco, y se dejaría de probar el artefacto que
 efectivamente se despliega, que es todo el punto de correrlos así.
 
-Adentro del contenedor los nombres de host son `postgres` y `redis`, no `localhost`: ahí
+Adentro del contenedor los nombres de host son `postgres`, `redis` y `rabbitmq`, no `localhost`: ahí
 `localhost` es el propio contenedor. El CI usa `--network host` en su lugar, que en los
 runners de Linux hace que el contenedor comparta la red de la máquina; en Docker Desktop sobre
 Windows o macOS eso no funciona igual.
@@ -297,9 +331,9 @@ src/users_api/
 │   └── schemas/            # qué entra y qué sale de cada ruta
 ├── app/                    # el negocio, sin nombrar ninguna tecnología
 │   ├── models/             # User y los tokens, con sus reglas
-│   ├── repositories/       # interfaces de dónde vive el estado
-│   ├── clients/            # interfaces de lo que habla con un tercero
+│   ├── repositories/       # interfaces de dónde vive el estado, outbox incluido
 │   ├── services/           # los casos de uso
+│   ├── events.py           # arma el sobre CloudEvents de cada evento que se publica
 │   ├── security.py         # hasheo de contraseñas, tokens y JWT
 │   └── errors.py           # el error que levantan los servicios
 ├── config/
@@ -307,14 +341,14 @@ src/users_api/
 └── infrastructure/         # las implementaciones, agrupadas por tecnología
     ├── database/           # tablas de SQLAlchemy y los repositorios que las usan
     ├── redis/              # contador de intentos y revocación de sesiones
-    ├── email/              # Resend, y el adaptador de consola para desarrollo y tests
+    ├── rabbitmq/           # publicador del outbox hacia RabbitMQ
     └── health.py           # consulta real a PostgreSQL y a Redis
 tests/
 ├── unit/                   # sin dependencias externas, con dobles de las interfaces
-└── integration/            # contra PostgreSQL y Redis reales
+└── integration/            # contra PostgreSQL, Redis y RabbitMQ reales
 docker/
 ├── Dockerfile              # multi-stage sobre python:3.13-slim
-└── docker-compose.dev.yml  # servicio, PostgreSQL y Redis
+└── docker-compose.dev.yml  # servicio, PostgreSQL, Redis y RabbitMQ
 ```
 
 **La regla es una sola: `app/` no importa nada de `api/` ni de `infrastructure/`.** Se verifica
@@ -322,13 +356,14 @@ leyendo imports, y hoy se cumple: en `app/` no aparecen las palabras `sqlalchemy
 `fastapi`.
 
 El único módulo que conoce las implementaciones concretas es `api/deps.py`. Cambiar de motor de
-base o de proveedor de correo es escribir la clase nueva en `infrastructure/` y tocar ese
+base o de broker es escribir la clase nueva en `infrastructure/` y tocar ese
 archivo.
 
 En `app/repositories/` viven las interfaces de todo lo que **almacena estado**: usuarios,
-tokens, contadores de intentos y revocaciones de sesión. Que unas se guarden en PostgreSQL y
-otras en Redis es problema de `infrastructure/`. En `app/clients/` viven las de lo que **habla
-con un tercero**, que hoy es solo el envío de correo.
+tokens, eventos pendientes de publicar, contadores de intentos y revocaciones de sesión. Que unas
+se guarden en PostgreSQL y otras en Redis es problema de `infrastructure/`. Hoy no hay ninguna
+interfaz de lo que **habla con un tercero**: los emails los manda `notifications-api`. Si aparece
+una, va en `app/clients/`, junto a `repositories/`.
 
 Cuando se agrega una tabla, su modelo va en `infrastructure/database/models.py`, que es lo que
 `migrations/env.py` importa. Un modelo que quede afuera hace que
