@@ -21,6 +21,7 @@ from users_api.api.errors import (
     problem_error_handler,
     validation_error_handler,
 )
+from users_api.api.event_handlers import build_event_handler
 from users_api.api.health import router as health_router
 from users_api.api.internal import router as internal_router
 from users_api.api.password_change import router as password_change_router
@@ -31,6 +32,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.security import load_signing_key
 from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
+from users_api.infrastructure.rabbitmq.event_consumer import EventConsumer
 from users_api.infrastructure.rabbitmq.outbox_publisher import OutboxPublisher
 from users_api.infrastructure.telemetry import export, instrument
 
@@ -66,7 +68,12 @@ async def lifespan(app: FastAPI):
         poll_seconds=settings.outbox_poll_seconds,
     )
     app.state.outbox_publisher = asyncio.create_task(publisher.run())
+    consumer = EventConsumer(settings.rabbitmq_url, build_event_handler(app.state.session_factory))
+    consuming = asyncio.create_task(consumer.run())
     yield
+    consuming.cancel()
+    with suppress(asyncio.CancelledError):
+        await consuming
     app.state.outbox_publisher.cancel()
     with suppress(asyncio.CancelledError):
         await app.state.outbox_publisher
