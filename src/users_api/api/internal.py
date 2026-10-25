@@ -59,6 +59,17 @@ async def put_under_review(user_id: uuid.UUID, service: ServiceDep) -> None:
     await service.put_under_review(user_id)
 
 
+@router.delete("/users/{user_id}/review", status_code=status.HTTP_204_NO_CONTENT)
+async def lift_review(user_id: uuid.UUID, service: ServiceDep) -> None:
+    """Release the account from review, once the backoffice closed its case (E5-H7).
+
+    posts-api calls this when an administrator dismisses or resolves the
+    reports (ADR-020). An account not under review answers the same and does
+    not change: a suspended one stays suspended.
+    """
+    await service.lift_review(user_id)
+
+
 @router.get("/users/{user_id}/profile")
 async def get_public_profile(
     user_id: uuid.UUID, service: ProfileServiceDep

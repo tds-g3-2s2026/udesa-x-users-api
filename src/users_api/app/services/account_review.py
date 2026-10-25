@@ -1,8 +1,9 @@
-"""Putting an account under review after enough reports (E3-H5).
+"""Putting an account under review after enough reports (E3-H5), and lifting it (E5-H7).
 
 The reports live in posts-api, which counts them and calls here once an account
 crosses the threshold (ADR-011). This side only owns what follows: the account
-stops being usable and every session it has open ends.
+stops being usable and every session it has open ends. Once the backoffice
+closes the case, posts-api calls again to release it (ADR-020).
 """
 
 import uuid
@@ -61,3 +62,26 @@ class AccountReviewService:
         # review, and past the cutoff above it would give out working sessions
         # again to whoever held it. The owner logs in anew instead.
         await self.refresh_tokens.revoke_all(user.id, revoked_at=now)
+
+    async def lift_review(self, user_id: uuid.UUID) -> None:
+        """Release the account once the backoffice dismissed or resolved its case.
+
+        Idempotent, like `put_under_review`: posts-api may call again after a
+        retry. Only an account under review moves. An active one has nothing to
+        lift, and a suspended one keeps what an administrator decided for it,
+        which is also what "Suspender" in the inbox relies on. The sessions it
+        lost do not come back: the owner logs in anew.
+        """
+        user = await self.users.get(user_id)
+        if user is None:
+            raise ProblemError(
+                status=404,
+                code="account-not-found",
+                title="No se pudo levantar la revisión",
+                detail="La cuenta no existe",
+            )
+        if user.status is not AccountStatus.UNDER_REVIEW:
+            return
+
+        user.change_status(AccountStatus.ACTIVE, at=datetime.now(UTC))
+        await self.users.update(user)
