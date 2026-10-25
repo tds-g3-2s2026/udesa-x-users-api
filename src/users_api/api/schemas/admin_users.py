@@ -43,3 +43,25 @@ class AdministratorResponse(BaseModel):
     # without having to reimplement the deadline itself.
     temporary_password_status: Literal["pending", "expired"] | None
     temporary_password_expires_at: datetime | None
+
+
+class UserAccountResponse(BaseModel):
+    """An app account as the backoffice sees it (E5-H4). Never a hash or a token.
+
+    `status` travels as stored: the panel shows `suspended` as "Bloqueado".
+    The followers and posts counters are posts-api's and come from there.
+    """
+
+    id: str
+    email: str
+    handle: str
+    display_name: str | None
+    status: Literal["active", "suspended", "under_review"]
+    is_email_verified: bool
+    created_at: datetime
+
+
+class UserAccountPage(BaseModel):
+    items: list[UserAccountResponse]
+    # Echoed back as `?cursor=` for the next page; null once there is none.
+    next_cursor: str | None
