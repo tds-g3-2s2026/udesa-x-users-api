@@ -411,3 +411,11 @@ La ruta interna `GET /internal/administrators/{id}/identity` devuelve ID y email
 solo de cuentas administrativas no eliminadas y exige `X-Internal-Token`. El
 perfil público no incluye email. posts-api debe leer esa identidad antes de
 confirmar su acción para conservar el correo que observó al prepararla.
+
+El consumidor de `admin.action_recorded.v1` conserva la fecha y el email del
+evento y descarta entregas repetidas por su ID. La confirmación del mensaje se
+hace después del commit; un fallo transitorio espera cinco segundos antes de
+devolver el mensaje a la cola y uno inválido va a `users-api.dlq` mediante un
+exchange exclusivo del servicio, sin mezclarse con rechazos de otros servicios.
+La consulta refleja eventos remotos con
+consistencia eventual. Un broker caído no impide arrancar el servicio.
