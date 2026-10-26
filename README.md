@@ -52,9 +52,10 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 
 Una cuenta en revisión no puede iniciar sesión: el login responde `403` con el código
 `account-under-review` y un mensaje propio, distinto del de `account-suspended`. Los tokens que ya
-tenía dejan de servir en `users-api` al instante. `posts-api` no ve esa revocación y los acepta
-hasta que vencen, como máximo `ACCESS_TOKEN_MINUTES`. Salir de revisión le toca al backoffice
-(`E5-H7`). Una cuenta suspendida no pasa a revisión: la decisión del administrador pesa más.
+tenía dejan de servir al instante, también en `posts-api`, que lee las mismas marcas de revocación
+de Redis ([ADR-014](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-014-revocacion-de-sesiones-en-posts-api.md)).
+Salir de revisión le toca al backoffice (`E5-H7`). Una cuenta suspendida no pasa a revisión: la
+decisión del administrador pesa más, y su motivo no se pisa.
 
 **Refresh tokens.** El access token dura `ACCESS_TOKEN_MINUTES`; el refresh token mantiene la sesión
 abierta hasta `REFRESH_TOKEN_DAYS` sin pedir las credenciales de nuevo. Es opaco y en la base solo
@@ -243,6 +244,11 @@ conserva hasta que venza su access token, y el próximo login le entrega su prim
 `0004_outbox.py` crea la tabla `outbox` (`id` del evento, `type`, `payload` con el sobre completo y
 `created_at`, con índice por `created_at`) y un trigger `AFTER INSERT` que hace
 `pg_notify('outbox', id)` para despertar al publicador. Es una tabla nueva: no toca datos existentes.
+
+`0005_motivo_del_estado.py` suma a `users` `status_reason` (texto) y `status_changed_at`
+(instante), los dos opcionales: por qué y cuándo cambió el estado por última vez. El bloqueo de un
+administrador (`E5-H5`) deja los dos, y la revisión por denuncias (`E3-H5`) solo el instante. Las
+cuentas existentes quedan en `NULL`: no hay un motivo verdadero que ponerles.
 
 ## Correr los tests
 
