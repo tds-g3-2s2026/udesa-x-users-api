@@ -76,4 +76,5 @@ async def get_public_profile(
         display_name=user.display_name,
         bio=user.bio,
         created_at=user.created_at,
+        profile_visibility=user.profile_visibility.value,
     )
