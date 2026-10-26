@@ -3,7 +3,7 @@
 from alembic import op
 
 revision = "search_account_trigrams"
-down_revision = "c7a3e91f5b28"
+down_revision = "4edf59f3f5df"
 branch_labels = None
 depends_on = None
 
