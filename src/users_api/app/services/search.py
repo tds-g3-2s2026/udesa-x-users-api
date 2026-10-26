@@ -20,7 +20,7 @@ class UserSearchService:
         handle_only = fragment.startswith("@")
         if handle_only:
             fragment = fragment[1:]
-        if len(fragment) < 3:
+        if "\x00" in fragment or len(fragment) < 3:
             raise ProblemError(
                 status=422,
                 code="invalid-query",

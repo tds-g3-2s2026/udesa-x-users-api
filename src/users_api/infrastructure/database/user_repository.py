@@ -14,7 +14,7 @@ import base64
 import binascii
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,8 +53,9 @@ def decode_cursor(value: str) -> tuple[datetime, uuid.UUID]:
         timestamp = datetime.fromisoformat(at)
         if timestamp.tzinfo is None or timestamp.utcoffset() is None:
             raise ValueError("Cursor timestamp requires a timezone")
+        timestamp = timestamp.astimezone(UTC)
         return timestamp, uuid.UUID(last_id)
-    except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+    except (ValueError, OverflowError, binascii.Error, UnicodeDecodeError) as error:
         # A tampered or stale cursor is the client's mistake, not a 500.
         raise ProblemError(
             status=400,
