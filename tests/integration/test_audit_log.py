@@ -58,6 +58,7 @@ async def test_e5_h6_ca1_creation_and_reset_preserve_actor_email_without_credent
         assert entry["actor_id"] == actor_id
         assert entry["actor_email"] == SUPERADMIN["email"]
         assert entry["target_id"] == target
+        assert entry["target_handle"] == MODERATOR["handle"]
         assert datetime.fromisoformat(entry["occurred_at"]).tzinfo is not None
         assert created.json()["temporary_password"] not in str(entry)
         assert reset.json()["temporary_password"] not in str(entry)
@@ -71,6 +72,55 @@ async def test_e5_h6_ca1_blocking_twice_records_only_the_effective_action(api):
     assert (await block(api, headers, target)).status_code == 204
     assert (await block(api, headers, target)).status_code == 204
     assert (await entries(api, headers)).json()["total"] == 1
+
+
+async def test_audit_reads_the_current_handle_without_changing_the_stored_entry(api):
+    _, headers = await administrator_with_id(api, MODERATOR, "moderator")
+    target = await given_registered(api)
+    await block(api, headers, target)
+    original = (await entries(api, headers)).json()["items"][0]
+    await set_columns(api, target, handle="@renamed_user")
+
+    current = (await entries(api, headers)).json()["items"][0]
+
+    assert current["target_handle"] == "@renamed_user"
+    assert {**current, "target_handle": original["target_handle"]} == original
+    async with api.app.state.session_factory() as session:
+        assert await session.scalar(text("SELECT count(*) FROM admin_audit_log")) == 1
+
+
+async def test_deleted_accounts_keep_the_audit_entry_without_a_display_handle(api):
+    _, headers = await administrator_with_id(api, MODERATOR, "moderator")
+    target = await given_registered(api)
+    await block(api, headers, target)
+    original = (await entries(api, headers)).json()["items"][0]
+    await set_columns(api, target, deleted_at=datetime.now(UTC))
+
+    page = (await entries(api, headers)).json()
+
+    assert page["total"] == 1
+    assert page["items"] == [{**original, "target_handle": None}]
+
+
+async def test_handles_are_only_resolved_for_user_targets(api):
+    actor_id, headers = await administrator_with_id(api, MODERATOR, "moderator")
+    async with api.app.state.session_factory() as session, session.begin():
+        await SqlAlchemyAuditLogRepository(session).add(
+            AuditEntry(
+                uuid.uuid4(),
+                datetime.now(UTC),
+                uuid.UUID(actor_id),
+                MODERATOR["email"],
+                "report.resolved",
+                "post",
+                uuid.UUID(actor_id),
+                {},
+            )
+        )
+
+    [entry] = (await entries(api, headers)).json()["items"]
+
+    assert entry["target_handle"] is None
 
 
 async def test_e5_h6_ca1_failed_audit_rolls_back_administrator_creation(api, monkeypatch):
@@ -153,6 +203,7 @@ async def test_e5_h6_ca3_both_admin_roles_can_read_stable_pages_and_totals(api, 
     first = (await entries(api, headers, limit=2)).json()
     second = (await entries(api, headers, limit=2, offset=2)).json()
     assert first["total"] == second["total"] == 3
+    assert all(entry["target_handle"] is None for entry in first["items"] + second["items"])
     assert [e["id"] for e in first["items"] + second["items"]] == [str(i) for i in reversed(ids)]
     assert (await entries(api, headers, offset=99)).json() == {"items": [], "total": 3}
     for params in ({"limit": 0}, {"limit": 101}, {"offset": -1}):

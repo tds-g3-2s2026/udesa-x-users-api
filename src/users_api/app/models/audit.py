@@ -14,3 +14,10 @@ class AuditEntry:
     target_type: str
     target_id: uuid.UUID
     details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AuditEntryWithTarget(AuditEntry):
+    """Current display data accompanies the immutable entry only when it is read."""
+
+    target_handle: str | None

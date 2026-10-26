@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from users_api.app.models.audit import AuditEntry
+from users_api.app.models.audit import AuditEntry, AuditEntryWithTarget
 
 
 class AuditLogRepository(ABC):
@@ -8,4 +8,6 @@ class AuditLogRepository(ABC):
     async def add(self, entry: AuditEntry) -> None: ...
 
     @abstractmethod
-    async def list_page(self, limit: int, offset: int) -> tuple[list[AuditEntry], int]: ...
+    async def list_page(
+        self, limit: int, offset: int
+    ) -> tuple[list[AuditEntryWithTarget], int]: ...

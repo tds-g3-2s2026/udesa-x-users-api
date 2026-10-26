@@ -399,6 +399,10 @@ de su actor aunque la cuenta cambie después. El historial no admite edición ni
 borrado, incluso mediante UPDATE, DELETE o TRUNCATE ordinarios en PostgreSQL.
 Un operador con permisos de DDL sigue teniendo control del esquema.
 
+`target_handle` muestra el handle actual de la cuenta afectada, resuelto al
+consultar la página; es nulo si la cuenta no está disponible. Los cambios de
+handle no modifican el registro histórico, que conserva la referencia por ID.
+
 Crear administradores, regenerar contraseñas temporales y bloquear cuentas
 guarda la auditoría en la misma transacción de la acción. La cuenta de arranque
 no se audita como una acción de una persona. Los detalles excluyen credenciales.

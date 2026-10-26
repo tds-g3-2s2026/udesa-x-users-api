@@ -15,6 +15,7 @@ class AuditEntryResponse(BaseModel):
     action: str
     target_type: str
     target_id: uuid.UUID
+    target_handle: str | None
     details: dict[str, Any]
 
 
