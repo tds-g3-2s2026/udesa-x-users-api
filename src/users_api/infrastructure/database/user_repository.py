@@ -75,6 +75,8 @@ def to_domain(row: UserModel) -> User:
         temporary_password_expires_at=row.temporary_password_expires_at,
         is_email_verified=row.is_email_verified,
         status=AccountStatus(row.status),
+        status_reason=row.status_reason,
+        status_changed_at=row.status_changed_at,
         deleted_at=row.deleted_at,
         terms_accepted=row.terms_accepted,
         terms_accepted_at=row.terms_accepted_at,
@@ -100,6 +102,8 @@ class SqlAlchemyUserRepository(UserRepository):
             temporary_password_expires_at=user.temporary_password_expires_at,
             is_email_verified=user.is_email_verified,
             status=user.status.value,
+            status_reason=user.status_reason,
+            status_changed_at=user.status_changed_at,
             deleted_at=user.deleted_at,
             terms_accepted=user.terms_accepted,
             terms_accepted_at=user.terms_accepted_at,
@@ -216,6 +220,8 @@ class SqlAlchemyUserRepository(UserRepository):
         row.temporary_password_expires_at = user.temporary_password_expires_at
         row.is_email_verified = user.is_email_verified
         row.status = user.status.value
+        row.status_reason = user.status_reason
+        row.status_changed_at = user.status_changed_at
         row.deleted_at = user.deleted_at
         row.display_name = user.display_name
         row.bio = user.bio

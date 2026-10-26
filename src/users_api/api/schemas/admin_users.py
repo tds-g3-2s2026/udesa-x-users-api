@@ -5,6 +5,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from users_api.api.schemas.auth import enforce_handle_format
 
+# Enough to explain a sanction in a few sentences.
+BLOCK_REASON_MAX_LENGTH = 500
+
 
 class CreateAdministratorRequest(BaseModel):
     email: EmailStr
@@ -57,6 +60,10 @@ class UserAccountResponse(BaseModel):
     handle: str
     display_name: str | None
     status: Literal["active", "suspended", "under_review"]
+    # Why and when `status` last changed. The reason only an administrator's
+    # block leaves; both null on an account that never changed.
+    status_reason: str | None
+    status_changed_at: datetime | None
     is_email_verified: bool
     created_at: datetime
 
@@ -65,3 +72,14 @@ class UserAccountPage(BaseModel):
     items: list[UserAccountResponse]
     # Echoed back as `?cursor=` for the next page; null once there is none.
     next_cursor: str | None
+
+
+class BlockAccountRequest(BaseModel):
+    # Stripped before the limits apply, so a reason of only spaces is refused as
+    # missing (CA.1) and the padding does not count against the 500.
+    reason: str = Field(min_length=1, max_length=BLOCK_REASON_MAX_LENGTH)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def strip_reason(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value

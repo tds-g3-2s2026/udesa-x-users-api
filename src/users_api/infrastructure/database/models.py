@@ -72,6 +72,12 @@ class UserModel(Base):
 
     # Same shape as `role`. The allowed values are the `AccountStatus` enum.
     status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    # Why and when `status` last changed. Unbounded like `display_name` below:
+    # the length of the reason is the request's rule.
+    status_reason: Mapped[str | None] = mapped_column(Text(), default=None)
+    status_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=None
+    )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     terms_accepted: Mapped[bool] = mapped_column(Boolean, default=False)
