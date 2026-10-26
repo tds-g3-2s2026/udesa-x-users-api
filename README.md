@@ -379,3 +379,7 @@ Para mantener la calidad y consistencia del código, todos los miembros deben se
 * **Commits (Opcional):** Recomendamos usar la convención de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 La versión completa y vigente de estas reglas vive en [`CONVENCIONES.md`](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/CONVENCIONES.md) de `udesa-x-platform`; ante cualquier diferencia, manda ese archivo. El punto de entrada para trabajar en este repo, con o sin agente, es su `AGENTS.md`.
+
+## Búsqueda pública de cuentas
+
+La búsqueda requiere conexión interna con posts-api para excluir bloqueos antes de completar cada página. En Kubernetes `POSTS_API_URL` apunta a `http://posts-api`; al ejecutar ambos servicios desde el host, usar `POSTS_API_URL=http://localhost:8001`. El token interno debe coincidir en ambos servicios. Una falla de esa comprobación responde 503.

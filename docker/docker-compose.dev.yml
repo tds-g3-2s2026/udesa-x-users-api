@@ -12,6 +12,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://users:users@rabbitmq:5672
       PUBLIC_BASE_URL: http://localhost:8000
+      POSTS_API_URL: http://host.docker.internal:8001
       # First superadmin credentials, development only. Production gets them
       # through GitHub Secrets. The seed does nothing when the account already exists.
       SUPERADMIN_EMAIL: admin@udesa.edu.ar
