@@ -10,7 +10,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from users_api.api.deps import SettingsDep, SuperadminDep, UserRepositoryDep
+from users_api.api.deps import AuditLogDep, SettingsDep, SuperadminDep, UserRepositoryDep
 from users_api.api.schemas.admin_users import (
     AdministratorCredentialResponse,
     AdministratorResponse,
@@ -32,7 +32,8 @@ ServiceDep = Annotated[AdminService, Depends(get_admin_service)]
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_administrator(
     payload: CreateAdministratorRequest,
-    _: SuperadminDep,
+    administrator: SuperadminDep,
+    audit: AuditLogDep,
     service: ServiceDep,
 ) -> AdministratorCredentialResponse:
     """Create an administrator and answer with its temporary password.
@@ -41,6 +42,8 @@ async def create_administrator(
     stores a hash of it, like every other account does.
     """
     user, temporary_password = await service.create_administrator(
+        actor_id=administrator.id,
+        audit=audit,
         email=payload.email,
         handle=payload.handle,
         role=Role(payload.role),
@@ -51,7 +54,8 @@ async def create_administrator(
 @router.post("/{user_id}/reset-temporary-password")
 async def reset_temporary_password(
     user_id: uuid.UUID,
-    _: SuperadminDep,
+    administrator: SuperadminDep,
+    audit: AuditLogDep,
     service: ServiceDep,
 ) -> AdministratorCredentialResponse:
     """Replace the temporary password of an administrator that never used it.
@@ -59,7 +63,9 @@ async def reset_temporary_password(
     Answers the same shape as the creation, for the same reason: this is the
     one moment the new password can be read.
     """
-    user, temporary_password = await service.reset_temporary_password(user_id)
+    user, temporary_password = await service.reset_temporary_password(
+        user_id, actor_id=administrator.id, audit=audit
+    )
     return credential(user, temporary_password)
 
 

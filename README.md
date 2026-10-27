@@ -393,3 +393,25 @@ Para mantener la calidad y consistencia del código, todos los miembros deben se
 * **Commits (Opcional):** Recomendamos usar la convención de [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 
 La versión completa y vigente de estas reglas vive en [`CONVENCIONES.md`](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/CONVENCIONES.md) de `udesa-x-platform`; ante cualquier diferencia, manda ese archivo. El punto de entrada para trabajar en este repo, con o sin agente, es su `AGENTS.md`.
+
+## Auditoría administrativa
+
+SuperAdmin y Moderador pueden consultar `GET /api/admin/audit` con `limit` (1 a
+100, por defecto 20) y `offset` no negativo. La respuesta contiene `items` y
+`total`, ordenados por fecha e ID descendentes. Cada entrada conserva el email
+de su actor aunque la cuenta cambie después. El historial no admite edición ni
+borrado, incluso mediante UPDATE, DELETE o TRUNCATE ordinarios en PostgreSQL.
+Un operador con permisos de DDL sigue teniendo control del esquema.
+
+`target_handle` muestra el handle actual de la cuenta afectada, resuelto al
+consultar la página; es nulo si la cuenta no está disponible. Los cambios de
+handle no modifican el registro histórico, que conserva la referencia por ID.
+
+Crear administradores, regenerar contraseñas temporales y bloquear cuentas
+guarda la auditoría en la misma transacción de la acción. La cuenta de arranque
+no se audita como una acción de una persona. Los detalles excluyen credenciales.
+
+La ruta interna `GET /internal/administrators/{id}/identity` devuelve ID y email
+solo de cuentas administrativas no eliminadas y exige `X-Internal-Token`. El
+perfil público no incluye email. posts-api debe leer esa identidad antes de
+confirmar su acción para conservar el correo que observó al prepararla.

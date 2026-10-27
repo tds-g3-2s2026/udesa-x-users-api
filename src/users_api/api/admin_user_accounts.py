@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from users_api.api.deps import (
     AdministratorDep,
+    AuditLogDep,
     RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
@@ -24,14 +25,10 @@ from users_api.api.schemas.admin_users import (
     UserAccountResponse,
 )
 from users_api.app.models.user import User
-from users_api.app.services.account_block import AccountBlockService, InMemoryAuditLog
+from users_api.app.services.account_block import AccountBlockService
 from users_api.app.services.admin_user_accounts import AdminUserAccountService
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
-
-# One for the whole process, so every request writes to the same place, until
-# E5-H6 brings the audit table and its `AuditLog` takes this one's place.
-audit_log = InMemoryAuditLog()
 
 
 async def get_account_service(users: UserRepositoryDep) -> AdminUserAccountService:
@@ -46,12 +43,13 @@ async def get_block_service(
     sessions: SessionStoreDep,
     refresh_tokens: RefreshTokenRepositoryDep,
     settings: SettingsDep,
+    audit: AuditLogDep,
 ) -> AccountBlockService:
     return AccountBlockService(
         users=users,
         sessions=sessions,
         refresh_tokens=refresh_tokens,
-        audit=audit_log,
+        audit=audit,
         settings=settings,
     )
 
