@@ -6,6 +6,7 @@ never changes here, and the handle was already fixed at registration.
 """
 
 from datetime import datetime
+from typing import Literal
 
 import nh3
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -45,6 +46,7 @@ class PublicProfileResponse(BaseModel):
     display_name: str | None
     bio: str | None
     created_at: datetime
+    profile_visibility: Literal["public", "protected"]
 
 
 class UpdateProfileRequest(BaseModel):
