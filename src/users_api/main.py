@@ -3,6 +3,7 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from importlib.metadata import version
 
+import httpx
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +28,7 @@ from users_api.api.password_change import router as password_change_router
 from users_api.api.password_reset import router as password_reset_router
 from users_api.api.preferences import router as preferences_router
 from users_api.api.profile import router as profile_router
+from users_api.api.search import router as search_router
 from users_api.app.errors import ProblemError
 from users_api.app.security import load_signing_key
 from users_api.config.settings import API_PREFIX, get_settings
@@ -51,6 +53,11 @@ async def lifespan(app: FastAPI):
     if settings.otel_exporter_otlp_endpoint:
         export(tracer_provider, OTLPSpanExporter(), OTLPLogExporter())
 
+    app.state.posts_api = httpx.AsyncClient(
+        base_url=settings.posts_api_url,
+        timeout=2.0,
+        headers={"X-Internal-Token": settings.internal_api_token},
+    )
     app.state.settings = settings
     app.state.engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     app.state.session_factory = build_session_factory(app.state.engine)
@@ -70,6 +77,7 @@ async def lifespan(app: FastAPI):
     app.state.outbox_publisher.cancel()
     with suppress(asyncio.CancelledError):
         await app.state.outbox_publisher
+    await app.state.posts_api.aclose()
     await app.state.engine.dispose()
     await app.state.redis.aclose()
 
@@ -111,4 +119,5 @@ app.include_router(password_reset_router, prefix=API_PREFIX)
 app.include_router(password_change_router, prefix=API_PREFIX)
 app.include_router(account_deletion_router, prefix=API_PREFIX)
 app.include_router(profile_router, prefix=API_PREFIX)
+app.include_router(search_router, prefix=API_PREFIX)
 app.include_router(preferences_router, prefix=API_PREFIX)

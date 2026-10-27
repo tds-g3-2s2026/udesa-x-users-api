@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # either: without it nobody could call those routes, and with an empty one
     # anybody inside the cluster could (ADR-011).
     internal_api_token: str
+    posts_api_url: str = "http://posts-api"
 
     # Ed25519 private key in PEM format. When absent, the service generates an
     # ephemeral pair at startup so development needs no setup. Tokens then stop

@@ -20,6 +20,7 @@ from fastapi import Depends, Header, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from users_api.app.clients.blocks import BlocksClient
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.outbox import OutboxRepository
@@ -46,6 +47,7 @@ from users_api.infrastructure.database.refresh_token_repository import (
 )
 from users_api.infrastructure.database.session import session_scope
 from users_api.infrastructure.database.user_repository import SqlAlchemyUserRepository
+from users_api.infrastructure.posts_api.blocks import HttpBlocksClient
 from users_api.infrastructure.redis.rate_limiter import RedisRateLimiter
 from users_api.infrastructure.redis.session_store import RedisSessionStore
 
@@ -261,3 +263,7 @@ async def require_internal_token(
             title="No se pudo autenticar la solicitud",
             detail="Falta el token interno o no es válido",
         )
+
+
+def get_blocks_client(request: Request) -> BlocksClient:
+    return HttpBlocksClient(request.app.state.posts_api)

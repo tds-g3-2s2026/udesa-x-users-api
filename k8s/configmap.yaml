@@ -5,6 +5,7 @@ metadata:
   namespace: tds-group-3
 data:
   LOG_LEVEL: "INFO"
+  POSTS_API_URL: "http://posts-api"
   PUBLIC_BASE_URL: "https://tds-group-3.tds-linar.udesa.edu.ar"
   JWT_ISSUER: "users-api"
   # Raíces de la CA de RDS en us-east-2, copiadas en la imagen (ADR-021). Con
