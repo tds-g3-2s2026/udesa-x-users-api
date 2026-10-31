@@ -14,12 +14,13 @@ import base64
 import binascii
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from users_api.app.errors import ProblemError
+from users_api.app.models.search import SEARCH_BATCH_SIZE, SearchCandidate
 from users_api.app.models.user import (
     AccountStatus,
     FeedLanguage,
@@ -49,8 +50,12 @@ def encode_cursor(row: UserModel) -> str:
 def decode_cursor(value: str) -> tuple[datetime, uuid.UUID]:
     try:
         at, last_id = base64.urlsafe_b64decode(value.encode()).decode().split("|")
-        return datetime.fromisoformat(at), uuid.UUID(last_id)
-    except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+        timestamp = datetime.fromisoformat(at)
+        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+            raise ValueError("Cursor timestamp requires a timezone")
+        timestamp = timestamp.astimezone(UTC)
+        return timestamp, uuid.UUID(last_id)
+    except (ValueError, OverflowError, binascii.Error, UnicodeDecodeError) as error:
         # A tampered or stale cursor is the client's mistake, not a 500.
         raise ProblemError(
             status=400,
@@ -158,6 +163,27 @@ class SqlAlchemyUserRepository(UserRepository):
         page = rows[:limit]
         next_cursor = encode_cursor(page[-1]) if len(rows) > limit else None
         return [to_domain(row) for row in page], next_cursor
+
+    async def search_public_accounts(
+        self, fragment: str, *, handle_only: bool, cursor: str | None
+    ) -> list[SearchCandidate]:
+        pattern = f"%{escape_like(fragment)}%"
+        match = UserModel.handle.ilike(pattern, escape="\\")
+        if not handle_only:
+            match = or_(match, UserModel.display_name.ilike(pattern, escape="\\"))
+        statement = select(UserModel).where(
+            UserModel.role == Role.USER.value, UserModel.deleted_at.is_(None), match
+        )
+        if cursor is not None:
+            statement = statement.where(
+                tuple_(UserModel.created_at, UserModel.id) < decode_cursor(cursor)
+            )
+        rows = await self.session.scalars(
+            statement.order_by(UserModel.created_at.desc(), UserModel.id.desc()).limit(
+                SEARCH_BATCH_SIZE
+            )
+        )
+        return [SearchCandidate(to_domain(row), encode_cursor(row)) for row in rows]
 
     async def list_administrators(self) -> list[User]:
         rows = await self.session.scalars(

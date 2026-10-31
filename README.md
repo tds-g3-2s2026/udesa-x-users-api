@@ -394,6 +394,27 @@ Para mantener la calidad y consistencia del código, todos los miembros deben se
 
 La versión completa y vigente de estas reglas vive en [`CONVENCIONES.md`](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/CONVENCIONES.md) de `udesa-x-platform`; ante cualquier diferencia, manda ese archivo. El punto de entrada para trabajar en este repo, con o sin agente, es su `AGENTS.md`.
 
+## Búsqueda pública de cuentas
+
+`GET /api/search/users?q=...&cursor=...` requiere sesión y busca coincidencias literales,
+parciales y case-insensitive sobre nombre visible o handle. El mínimo es de tres caracteres
+después de quitar los espacios extremos y el `@` inicial; con `@` solo se busca el handle.
+No se normalizan tildes y los comodines `%`, `_` y barra invertida se buscan como texto.
+
+Antes de completar cada página se excluyen cuentas administrativas, eliminadas y bloqueadas
+en cualquier dirección. Se devuelven hasta veinte cuentas, ordenadas por fecha e ID
+descendentes, y `nextCursor` apunta a la última devuelta. La respuesta solo incluye `id`,
+`handle`, `displayName` e `isPrivate`, nunca email ni campos administrativos.
+
+La comprobación de bloqueos consulta a posts-api por lotes. Si falla, responde 503 sin
+devolver cuentas sin filtrar. `POSTS_API_URL` apunta a `http://posts-api` en Kubernetes y a
+`http://localhost:8001` al ejecutar ambos servicios desde el host. El token interno debe
+coincidir en ambos servicios.
+
+El Compose de este repo no levanta posts-api: hay que ejecutarlo aparte. Desde el contenedor
+se usa `http://host.docker.internal:8001`; `extra_hosts` agrega la resolución de ese nombre
+también en Docker Linux.
+
 ## Auditoría administrativa
 
 SuperAdmin y Moderador pueden consultar `GET /api/admin/audit` con `limit` (1 a

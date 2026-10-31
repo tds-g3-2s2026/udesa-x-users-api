@@ -21,6 +21,18 @@ from users_api.infrastructure.database.session import Base
 class UserModel(Base):
     __tablename__ = "users"
     __table_args__ = (
+        Index(
+            "ix_users_handle_trgm",
+            "handle",
+            postgresql_using="gin",
+            postgresql_ops={"handle": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_users_display_name_trgm",
+            "display_name",
+            postgresql_using="gin",
+            postgresql_ops={"display_name": "gin_trgm_ops"},
+        ),
         CheckConstraint("role IN ('user', 'moderator', 'superadmin')", name="ck_users_role"),
         CheckConstraint(
             "profile_visibility IN ('public', 'protected')", name="ck_users_profile_visibility"

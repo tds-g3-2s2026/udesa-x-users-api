@@ -8,6 +8,7 @@ else later, and what lets the unit tests replace it with a double.
 import uuid
 from abc import ABC, abstractmethod
 
+from users_api.app.models.search import SearchCandidate
 from users_api.app.models.user import AccountStatus, User
 
 
@@ -40,6 +41,11 @@ class UserRepository(ABC):
         deleted accounts are left out. Paged by an opaque cursor, returned
         alongside the page and None when there is no next one.
         """
+
+    @abstractmethod
+    async def search_public_accounts(
+        self, fragment: str, *, handle_only: bool, cursor: str | None
+    ) -> list[SearchCandidate]: ...
 
     @abstractmethod
     async def list_administrators(self) -> list[User]:
