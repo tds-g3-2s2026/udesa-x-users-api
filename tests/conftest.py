@@ -52,6 +52,9 @@ async def clean_state():
     engine = create_async_engine(os.environ["DATABASE_URL"])
     redis = Redis.from_url(os.environ["REDIS_URL"])
     async with engine.begin() as connection:
+        await connection.execute(text("ALTER TABLE admin_audit_log DISABLE TRIGGER USER"))
+        await connection.execute(text("TRUNCATE admin_audit_log"))
+        await connection.execute(text("ALTER TABLE admin_audit_log ENABLE TRIGGER USER"))
         await connection.execute(
             text(
                 "TRUNCATE users, email_verification_tokens, password_reset_tokens, "

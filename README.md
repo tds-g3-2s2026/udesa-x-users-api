@@ -41,6 +41,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/forgot-password` | Pide el código de recuperación, con email o handle: deja en el outbox `password.reset_requested.v1`. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta. Deja en el outbox `password.changed.v1` |
+| `DELETE /me` | Da de baja la cuenta sabiendo la contraseña actual, que viaja en el body (`{"current_password": "..."}`). Marca `deleted_at` y no borra la fila: el email y el handle quedan reservados. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens. Comparte con el cambio de contraseña el cupo de intentos fallidos. Deja en el outbox `user.deleted.v1`. Un administrador recibe `403`: sus cuentas se gestionan desde el backoffice |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
@@ -113,6 +114,8 @@ servicio. `users-api` publica un evento por cada uno y `notifications-api` lo co
 correo ([ADR-010](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-010-proveedor-de-correo.md),
 [ADR-017](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-017-forma-y-versionado-de-eventos.md)).
 Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no se edita acá.
+`user.deleted.v1` es la excepción a lo del correo: no genera ningún mail, es para que `posts-api` y
+`notifications-api` limpien lo que guardan de la cuenta.
 
 | `type` | Cuándo | `data` |
 |---|---|---|
@@ -120,6 +123,7 @@ Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no s
 | `email_verification.requested.v1` | `POST /auth/resend-verification` sobre una cuenta sin verificar. No repite `user.registered`: la cuenta no se creó de nuevo | `user_id`, `email`, `verification_url` |
 | `password.reset_requested.v1` | `POST /auth/forgot-password` sobre una cuenta que existe y puede entrar | `user_id`, `email`, `token` |
 | `password.changed.v1` | `POST /me/change-password` cambia la contraseña | `user_id`, `email` |
+| `user.deleted.v1` | `DELETE /me` da de baja la cuenta. `time` es el instante de la baja, el mismo con el que se marca `deleted_at` | `user_id` |
 
 Cada evento es un sobre CloudEvents 1.0 (`specversion`, `id`, `source: users-api`, `type`, `time`,
 `data`). El `id` es un UUID nuevo y es la clave de idempotencia del consumidor.
@@ -351,7 +355,7 @@ src/users_api/
 └── infrastructure/         # las implementaciones, agrupadas por tecnología
     ├── database/           # tablas de SQLAlchemy y los repositorios que las usan
     ├── redis/              # contador de intentos y revocación de sesiones
-    ├── rabbitmq/           # publicador del outbox hacia RabbitMQ
+    ├── rabbitmq/           # publicador del outbox y consumidor de auditoría
     └── health.py           # consulta real a PostgreSQL y a Redis
 tests/
 ├── unit/                   # sin dependencias externas, con dobles de las interfaces
@@ -392,4 +396,51 @@ La versión completa y vigente de estas reglas vive en [`CONVENCIONES.md`](https
 
 ## Búsqueda pública de cuentas
 
-La búsqueda requiere conexión interna con posts-api para excluir bloqueos antes de completar cada página. En Kubernetes `POSTS_API_URL` apunta a `http://posts-api`; al ejecutar ambos servicios desde el host, usar `POSTS_API_URL=http://localhost:8001`. El token interno debe coincidir en ambos servicios. Una falla de esa comprobación responde 503.
+`GET /api/search/users?q=...&cursor=...` requiere sesión y busca coincidencias literales,
+parciales y case-insensitive sobre nombre visible o handle. El mínimo es de tres caracteres
+después de quitar los espacios extremos y el `@` inicial; con `@` solo se busca el handle.
+No se normalizan tildes y los comodines `%`, `_` y barra invertida se buscan como texto.
+
+Antes de completar cada página se excluyen cuentas administrativas, eliminadas y bloqueadas
+en cualquier dirección. Se devuelven hasta veinte cuentas, ordenadas por fecha e ID
+descendentes, y `nextCursor` apunta a la última devuelta. La respuesta solo incluye `id`,
+`handle`, `displayName` e `isPrivate`, nunca email ni campos administrativos.
+
+La comprobación de bloqueos consulta a posts-api por lotes. Si falla, responde 503 sin
+devolver cuentas sin filtrar. `POSTS_API_URL` apunta a `http://posts-api` en Kubernetes y a
+`http://localhost:8001` al ejecutar ambos servicios desde el host. El token interno debe
+coincidir en ambos servicios.
+
+El Compose de este repo no levanta posts-api: hay que ejecutarlo aparte. Desde el contenedor
+se usa `http://host.docker.internal:8001`; `extra_hosts` agrega la resolución de ese nombre
+también en Docker Linux.
+
+## Auditoría administrativa
+
+SuperAdmin y Moderador pueden consultar `GET /api/admin/audit` con `limit` (1 a
+100, por defecto 20) y `offset` no negativo. La respuesta contiene `items` y
+`total`, ordenados por fecha e ID descendentes. Cada entrada conserva el email
+de su actor aunque la cuenta cambie después. El historial no admite edición ni
+borrado, incluso mediante UPDATE, DELETE o TRUNCATE ordinarios en PostgreSQL.
+Un operador con permisos de DDL sigue teniendo control del esquema.
+
+`target_handle` muestra el handle actual de la cuenta afectada, resuelto al
+consultar la página; es nulo si la cuenta no está disponible. Los cambios de
+handle no modifican el registro histórico, que conserva la referencia por ID.
+
+Crear administradores, regenerar contraseñas temporales y bloquear cuentas
+guarda la auditoría en la misma transacción de la acción. La cuenta de arranque
+no se audita como una acción de una persona. Los detalles excluyen credenciales.
+
+La ruta interna `GET /internal/administrators/{id}/identity` devuelve ID y email
+solo de cuentas administrativas no eliminadas y exige `X-Internal-Token`. El
+perfil público no incluye email. posts-api debe leer esa identidad antes de
+confirmar su acción para conservar el correo que observó al prepararla.
+
+El consumidor de `admin.action_recorded.v1` conserva la fecha y el email del
+evento y descarta entregas repetidas por su ID. La confirmación del mensaje se
+hace después del commit; un fallo transitorio espera cinco segundos antes de
+devolver el mensaje a la cola y uno inválido va a `users-api.dlq` mediante un
+exchange exclusivo del servicio, sin mezclarse con rechazos de otros servicios.
+La consulta refleja eventos remotos con
+consistencia eventual. Un broker caído no impide arrancar el servicio.

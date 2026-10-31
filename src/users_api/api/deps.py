@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from users_api.app.clients.blocks import BlocksClient
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
+from users_api.app.repositories.audit import AuditLogRepository
 from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
@@ -33,8 +34,10 @@ from users_api.app.repositories.tokens import (
 )
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import decode_access_token
+from users_api.app.services.audit import AuditLog
 from users_api.app.services.auth import SUSPENDED_ACCOUNT, deny_blocked_account
 from users_api.config.settings import API_PREFIX, Settings
+from users_api.infrastructure.database.audit_repository import SqlAlchemyAuditLogRepository
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
@@ -267,3 +270,17 @@ async def require_internal_token(
 
 def get_blocks_client(request: Request) -> BlocksClient:
     return HttpBlocksClient(request.app.state.posts_api)
+
+
+def get_audit_repository(session: SessionDep) -> AuditLogRepository:
+    return SqlAlchemyAuditLogRepository(session)
+
+
+AuditRepositoryDep = Annotated[AuditLogRepository, Depends(get_audit_repository)]
+
+
+def get_audit_log(entries: AuditRepositoryDep, users: UserRepositoryDep) -> AuditLog:
+    return AuditLog(entries, users)
+
+
+AuditLogDep = Annotated[AuditLog, Depends(get_audit_log)]

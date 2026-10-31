@@ -60,6 +60,18 @@ async def test_the_public_profile_never_carries_the_email(api):
     assert "email" not in body
 
 
+@pytest.mark.parametrize("visibility", ["public", "protected"])
+async def test_e2_h10_ca6_internal_profile_includes_current_visibility(api, visibility):
+    user_id, _ = await signed_up(api)
+    await set_user_flag(api.app, "profile_visibility", visibility)
+
+    response = await api.get_public_profile(user_id, internal_token())
+
+    assert response.status_code == 200
+    assert response.json()["profile_visibility"] == visibility
+    assert not {"email", "password_hash", "access_token"} & response.json().keys()
+
+
 async def test_an_unknown_account_is_404(api):
     response = await api.get_public_profile(str(uuid.uuid4()), internal_token())
 

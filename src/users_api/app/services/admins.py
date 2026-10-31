@@ -12,6 +12,7 @@ from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.users import UserRepository
 from users_api.app.security import generate_temporary_password, hash_password
+from users_api.app.services.audit import AuditLog
 from users_api.config.settings import Settings
 
 # How long a temporary password lasts. Not a setting: E5-H1 fixes it at a day,
@@ -52,7 +53,7 @@ class AdminService:
         )
 
     async def create_administrator(
-        self, *, email: str, handle: str, role: Role
+        self, *, actor_id: uuid.UUID, audit: AuditLog, email: str, handle: str, role: Role
     ) -> tuple[User, str]:
         """Create an administrator account from the panel.
 
@@ -93,6 +94,7 @@ class AdminService:
                 terms_accepted_at=now,
             )
         )
+        await audit.record(actor_id, "admin.created", "user", user.id, {"email": user.email})
         return user, temporary_password
 
     def deny_email_outside_the_authorized_domain(self, email: str) -> None:
@@ -110,7 +112,9 @@ class AdminService:
                 detail=f"El correo de un administrador tiene que ser del dominio @{domain}",
             )
 
-    async def reset_temporary_password(self, user_id: uuid.UUID) -> tuple[User, str]:
+    async def reset_temporary_password(
+        self, user_id: uuid.UUID, *, actor_id: uuid.UUID, audit: AuditLog
+    ) -> tuple[User, str]:
         """Hand out a new temporary password for an account still owing one.
 
         The usual reason is that the first one expired unused. An account
@@ -140,6 +144,7 @@ class AdminService:
             hours=TEMPORARY_PASSWORD_HOURS
         )
         await self.users.update(user)
+        await audit.record(actor_id, "admin.temporary_password_reset", "user", user.id, {})
         return user, temporary_password
 
     async def list_administrators(self) -> list[User]:

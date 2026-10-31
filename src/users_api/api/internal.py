@@ -11,12 +11,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 
 from users_api.api.deps import (
+    AuditLogDep,
     RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
     UserRepositoryDep,
     require_internal_token,
 )
+from users_api.api.schemas.audit import AdministratorIdentity
 from users_api.api.schemas.profile import PublicProfileResponse
 from users_api.app.services.account_review import AccountReviewService
 from users_api.app.services.profile import ProfileService
@@ -78,7 +80,7 @@ async def get_public_profile(
 
     posts-api calls this for E2-H14: the counters and the posts are its own,
     but the name, the biography and the registration date live here. The
-    email never leaves this service.
+    public response excludes the email.
     """
     user = await service.public_profile(user_id)
     return PublicProfileResponse(
@@ -87,4 +89,11 @@ async def get_public_profile(
         display_name=user.display_name,
         bio=user.bio,
         created_at=user.created_at,
+        profile_visibility=user.profile_visibility.value,
     )
+
+
+@router.get("/administrators/{actor_id}/identity")
+async def administrator_identity(actor_id: uuid.UUID, audit: AuditLogDep) -> AdministratorIdentity:
+    actor = await audit.administrator(actor_id)
+    return AdministratorIdentity(id=actor.id, email=actor.email)
