@@ -2,7 +2,7 @@
 
 <!-- INICIO BLOQUE PROPIO - completado en cada servicio -->
 
-Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, recuperación de contraseña y perfiles. No manda emails: publica los eventos de cuenta por RabbitMQ (outbox) y `notifications-api` los envía. Cubre E1-H1 a H14, más E5-H1, E5-H2 y E5-H9.
+Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, recuperación de contraseña y perfiles. No manda emails: publica los eventos de cuenta por RabbitMQ (outbox) y `notifications-api` los envía. Cubre E1-H1 a H14, más E5-H1, E5-H2, E5-H6 y E5-H9.
 
 ## Stack y herramientas
 
@@ -10,7 +10,7 @@ Identidad, perfiles y administradores de UdeSA-X: registro, login/logout, JWT, r
 - Gestor de paquetes: uv
 - Persistencia y migraciones: PostgreSQL (SQLAlchemy 2 async con asyncpg) / Alembic
 - Cache y estado efímero: Redis (revocación de JWT, lockout de intentos fallidos) — no Valkey, ver `ARQUITECTURA.md`
-- Mensajería: RabbitMQ con aio-pika (publicación de eventos, patrón outbox)
+- Mensajería: RabbitMQ con aio-pika (publicación con outbox y consumo de auditoría)
 
 ## Checks y comandos
 
@@ -34,9 +34,10 @@ uv run pytest --cov=src --cov-report=term              # + tests/integration, re
 - Las tablas viven en `infrastructure/database/models.py`, que es lo que importa `migrations/env.py`. Un modelo que no esté ahí hace que `autogenerate` proponga borrar la tabla.
 - **Migraciones incrementales.** Hay un deploy real, así que `0001_esquema_actual.py` es la base fija y cada cambio de esquema suma una migración nueva (`0002_...`, `0003_...`, `0004_outbox.py`). Editar una ya aplicada no llega a la base de producción.
 - **Los emails no salen de acá: se publican como eventos.** Los servicios de `app/services/` escriben el evento (`app/events.py`) en el outbox con `OutboxRepository`, dentro de la transacción del request; el publicador (`infrastructure/rabbitmq/`, una tarea del `lifespan`) lo manda a RabbitMQ y borra la fila al confirmar el broker. `verification_url` y `token` de los eventos son secretos: nunca se loguea un payload, solo `id` y `type`.
+- **Auditoría remota:** consume `admin.action_recorded.v1` de `posts-api`. `api/event_handlers.py` valida el evento y confirma la transacción antes del ACK; el ID del evento deduplica las reentregas en `admin_audit_log`. El consumidor (`infrastructure/rabbitmq/event_consumer.py`) arranca en el `lifespan`, reintenta los fallos transitorios y manda los inválidos a `users-api.dlq` mediante el exchange propio `users-api.dlx`.
 - Tests en `tests/unit/` y `tests/integration/`; `tests/conftest.py` aplica las migraciones de Alembic contra la base real y limpia tablas/Redis entre tests (`clean_state`). La suite de integración se salta sola si no hay `DATABASE_URL`/`REDIS_URL`/`RABBITMQ_URL`; el fixture `api` apunta el publicador a un broker inalcanzable para que los eventos queden en el outbox, y los tests del publicador usan el RabbitMQ real.
 - **Identificadores de historia (`E1-H13`, `CA.4`, etc.): solo en el nombre de la función de test**, como pide "Trazabilidad de criterios de aceptación" en `CONVENCIONES.md` (formato `test_e1_h13_ca4_...`). No van en código de producción (`src/`) ni en el docstring o los comentarios del propio archivo de test: ahí se explica el porqué de la regla, no su número. Un identificador que se cuela en un comentario de `src/` sobrevive a un refactor de la historia que lo puso; el nombre del test es el único lugar donde vale la pena que quede fijo, porque es lo que se filtra en la defensa.
-- `contracts/events/` es una copia de `udesa-x-platform/docs/eventos/` con los eventos que este servicio publica (ADR-017 de platform). No se edita acá: se cambia en platform y se trae con su `scripts/sync-contracts.sh`. El job `Contratos de eventos al dia` del CI falla si la copia difiere. Los tests validan contra estos esquemas cada evento que arma el servicio y el mensaje que entrega el publicador.
+- `contracts/events/` es una copia de `udesa-x-platform/docs/eventos/` con los eventos que este servicio publica o consume (ADR-017 de platform). No se edita acá: se cambia en platform y se trae con su `scripts/sync-contracts.sh`. El job `Contratos de eventos al dia` del CI falla si la copia difiere. Los tests validan contra estos esquemas los eventos que arma o recibe el servicio.
 - Documentación general del sistema: consultar `../udesa-x-platform/docs/` (`ARQUITECTURA.md`, `CONVENCIONES.md`, `PLANIFICACION.md`).
 
 <!-- FIN BLOQUE PROPIO -->
