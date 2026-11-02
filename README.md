@@ -444,3 +444,14 @@ devolver el mensaje a la cola y uno inválido va a `users-api.dlq` mediante un
 exchange exclusivo del servicio, sin mezclarse con rechazos de otros servicios.
 La consulta refleja eventos remotos con
 consistencia eventual. Un broker caído no impide arrancar el servicio.
+
+## Métricas operativas
+
+La duración HTTP se registra en segundos y se agrupa por método, ruta parametrizada y código
+de respuesta. Los healthchecks quedan excluidos; las URLs concretas, consultas e identidades
+de usuarios no crean series. Las réplicas se distinguen por una identidad de proceso.
+
+Las métricas se envían junto con trazas y logs únicamente cuando está configurado
+`OTEL_EXPORTER_OTLP_ENDPOINT`, con las credenciales OTLP existentes. Los exemplars relacionan
+mediciones con trazas muestreadas sin convertir el identificador de traza en una etiqueta.
+El apagado intenta exportar las mediciones pendientes antes de cerrar el lector.

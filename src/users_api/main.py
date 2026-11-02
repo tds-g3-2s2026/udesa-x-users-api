@@ -8,7 +8,9 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -37,7 +39,7 @@ from users_api.config.settings import API_PREFIX, get_settings
 from users_api.infrastructure.database.session import build_session_factory
 from users_api.infrastructure.rabbitmq.event_consumer import EventConsumer
 from users_api.infrastructure.rabbitmq.outbox_publisher import OutboxPublisher
-from users_api.infrastructure.telemetry import export, instrument
+from users_api.infrastructure.telemetry import create_meter_provider, export, instrument
 
 
 @asynccontextmanager
@@ -53,8 +55,10 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
         force=True,
     )
+    logger_provider = None
+    metric_reader = None
     if settings.otel_exporter_otlp_endpoint:
-        export(tracer_provider, OTLPSpanExporter(), OTLPLogExporter())
+        logger_provider = export(tracer_provider, OTLPSpanExporter(), OTLPLogExporter())
 
     app.state.posts_api = httpx.AsyncClient(
         base_url=settings.posts_api_url,
@@ -78,16 +82,30 @@ async def lifespan(app: FastAPI):
     app.state.outbox_publisher = asyncio.create_task(publisher.run())
     consumer = EventConsumer(settings.rabbitmq_url, build_event_handler(app.state.session_factory))
     consuming = asyncio.create_task(consumer.run())
-    yield
-    consuming.cancel()
-    with suppress(asyncio.CancelledError):
-        await consuming
-    app.state.outbox_publisher.cancel()
-    with suppress(asyncio.CancelledError):
-        await app.state.outbox_publisher
-    await app.state.posts_api.aclose()
-    await app.state.engine.dispose()
-    await app.state.redis.aclose()
+    if settings.otel_exporter_otlp_endpoint:
+        metric_reader = PeriodicExportingMetricReader(OTLPMetricExporter())
+        meter_provider.add_metric_reader(metric_reader)
+    try:
+        yield
+    finally:
+        try:
+            consuming.cancel()
+            with suppress(asyncio.CancelledError):
+                await consuming
+            app.state.outbox_publisher.cancel()
+            with suppress(asyncio.CancelledError):
+                await app.state.outbox_publisher
+            await app.state.posts_api.aclose()
+            await app.state.engine.dispose()
+            await app.state.redis.aclose()
+        finally:
+            if metric_reader is not None:
+                try:
+                    metric_reader.force_flush()
+                finally:
+                    meter_provider.remove_metric_reader(metric_reader)
+            if logger_provider is not None:
+                logger_provider.shutdown()
 
 
 app = FastAPI(title="UdeSA-X Users API", version=version("users-api"), lifespan=lifespan)
@@ -105,7 +123,8 @@ app.add_middleware(
     expose_headers=["Retry-After"],
 )
 
-tracer_provider = instrument(app)
+meter_provider = create_meter_provider()
+tracer_provider = instrument(app, meter_provider)
 
 app.add_exception_handler(ProblemError, problem_error_handler)
 app.add_exception_handler(RequestValidationError, validation_error_handler)
