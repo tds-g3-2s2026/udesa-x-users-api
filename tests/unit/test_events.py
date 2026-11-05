@@ -34,6 +34,7 @@ BUILT = {
     ),
     "password.changed.v1": lambda: events.password_changed(USER, now=NOW),
     "user.deleted.v1": lambda: events.user_deleted(USER, now=NOW),
+    "preferences.changed.v1": lambda: events.preferences_changed(USER, now=NOW),
 }
 
 
