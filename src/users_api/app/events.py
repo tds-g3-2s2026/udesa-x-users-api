@@ -24,6 +24,7 @@ EMAIL_VERIFICATION_REQUESTED = "email_verification.requested.v1"
 PASSWORD_RESET_REQUESTED = "password.reset_requested.v1"
 PASSWORD_CHANGED = "password.changed.v1"
 USER_DELETED = "user.deleted.v1"
+PREFERENCES_CHANGED = "preferences.changed.v1"
 
 
 @dataclass(frozen=True)
@@ -106,3 +107,16 @@ def user_deleted(user: User, *, now: datetime) -> Event:
     account does not need to know who it was, and the schema forbids more.
     """
     return build_event(USER_DELETED, {"user_id": str(user.id)}, now=now)
+
+
+def preferences_changed(user: User, *, now: datetime) -> Event:
+    """An account chose another language for its feed.
+
+    `time` is the instant the change was saved: two changes in a row can arrive
+    out of order, and the consumer drops one older than the last it applied.
+    """
+    return build_event(
+        PREFERENCES_CHANGED,
+        {"user_id": str(user.id), "feed_language": user.feed_language.value},
+        now=now,
+    )
