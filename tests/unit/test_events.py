@@ -11,6 +11,7 @@ import pytest
 
 from tests.schemas import validator_for
 from users_api.app import events
+from users_api.app.models.feedback import Feedback
 from users_api.app.models.user import User
 
 NOW = datetime(2026, 10, 24, 10, 15, 2, 123456, tzinfo=UTC)
@@ -35,6 +36,17 @@ BUILT = {
     "password.changed.v1": lambda: events.password_changed(USER, now=NOW),
     "user.deleted.v1": lambda: events.user_deleted(USER, now=NOW),
     "preferences.changed.v1": lambda: events.preferences_changed(USER, now=NOW),
+    "feedback.submitted.v1": lambda: events.feedback_submitted(
+        Feedback(
+            id=uuid.uuid4(),
+            user_id=USER.id,
+            handle=USER.handle,
+            message="La pantalla se queda cargando",
+            device_os="Android 15",
+            app_version="1.3.0",
+            created_at=NOW,
+        )
+    ),
 }
 
 

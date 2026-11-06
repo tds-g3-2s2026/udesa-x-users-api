@@ -58,7 +58,7 @@ async def clean_state():
         await connection.execute(
             text(
                 "TRUNCATE users, email_verification_tokens, password_reset_tokens, "
-                "refresh_tokens, outbox CASCADE"
+                "refresh_tokens, outbox, feedback CASCADE"
             )
         )
     await redis.flushdb()
