@@ -209,6 +209,24 @@ class OutboxModel(Base):
     )
 
 
+class FeedbackModel(Base):
+    """Comments and bug reports sent from the app.
+
+    No foreign key to users on purpose, like the outbox: the record has to
+    outlive the account, which is also why it keeps its own copy of the handle.
+    """
+
+    __tablename__ = "feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True))
+    handle: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    device_os: Mapped[str] = mapped_column(Text)
+    app_version: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditLogModel(Base):
     __tablename__ = "admin_audit_log"
     __table_args__ = (
