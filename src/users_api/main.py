@@ -26,6 +26,7 @@ from users_api.api.errors import (
     validation_error_handler,
 )
 from users_api.api.event_handlers import build_event_handler
+from users_api.api.feedback import router as feedback_router
 from users_api.api.health import router as health_router
 from users_api.api.internal import router as internal_router
 from users_api.api.password_change import router as password_change_router
@@ -145,6 +146,7 @@ app.include_router(admin_metrics_router, prefix=API_PREFIX)
 app.include_router(password_reset_router, prefix=API_PREFIX)
 app.include_router(password_change_router, prefix=API_PREFIX)
 app.include_router(account_deletion_router, prefix=API_PREFIX)
+app.include_router(feedback_router, prefix=API_PREFIX)
 app.include_router(profile_router, prefix=API_PREFIX)
 app.include_router(search_router, prefix=API_PREFIX)
 app.include_router(preferences_router, prefix=API_PREFIX)
