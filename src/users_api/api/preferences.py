@@ -10,15 +10,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from users_api.api.deps import CurrentUserDep, UserRepositoryDep
+from users_api.api.deps import CurrentUserDep, OutboxRepositoryDep, UserRepositoryDep
 from users_api.api.schemas.preferences import PreferencesResponse, UpdatePreferencesRequest
 from users_api.app.services.preferences import PreferencesService
 
 router = APIRouter(prefix="/me/preferences", tags=["preferences"])
 
 
-async def get_preferences_service(users: UserRepositoryDep) -> PreferencesService:
-    return PreferencesService(users=users)
+async def get_preferences_service(
+    users: UserRepositoryDep, outbox: OutboxRepositoryDep
+) -> PreferencesService:
+    return PreferencesService(users=users, outbox=outbox)
 
 
 ServiceDep = Annotated[PreferencesService, Depends(get_preferences_service)]

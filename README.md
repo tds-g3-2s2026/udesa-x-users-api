@@ -45,7 +45,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
-| `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422` |
+| `PATCH /me/preferences` | Edita una o las dos preferencias. Cada una es un enum: un valor fuera de lo definido se rechaza con `422`. Si `feed_language` cambió, deja en el outbox `preferences.changed.v1` |
 | `POST /internal/users/{id}/review` | Pone la cuenta en revisión y revoca todas sus sesiones y todos sus refresh tokens. Fuera de `/api`, así que el gateway no la expone: la llama `posts-api` por la red del cluster ([ADR-011](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-011-denuncias-y-cuenta-en-revision.md)). Exige el header `X-Internal-Token`; sin él o con otro valor responde `401`. Llamarla de nuevo responde `204` y no cambia nada |
 | `DELETE /internal/users/{id}/review` | Levanta la revisión cuando el backoffice descarta o resuelve el caso: la cuenta vuelve a `active` y queda el instante del cambio. Una cuenta activa o suspendida no cambia, y llamarla de nuevo tampoco. Las sesiones revocadas no vuelven: el dueño inicia sesión de nuevo. Una cuenta inexistente responde `404`. Fuera de `/api` y con `X-Internal-Token`, como la anterior. La llama `posts-api` (E5-H7, [ADR-020](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-020-cierre-de-casos-de-denuncias.md)) |
 | `GET /internal/users/{id}/profile` | Devuelve la parte pública de una cuenta: `id`, `handle`, `display_name`, `bio` y `created_at`, nunca el email. La llama `posts-api` para armar el perfil de otro usuario (E2-H14). Una cuenta inexistente o eliminada responde `404`. Exige el mismo `X-Internal-Token` que la ruta anterior |
@@ -124,6 +124,7 @@ Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no s
 | `password.reset_requested.v1` | `POST /auth/forgot-password` sobre una cuenta que existe y puede entrar | `user_id`, `email`, `token` |
 | `password.changed.v1` | `POST /me/change-password` cambia la contraseña | `user_id`, `email` |
 | `user.deleted.v1` | `DELETE /me` da de baja la cuenta. `time` es el instante de la baja, el mismo con el que se marca `deleted_at` | `user_id` |
+| `preferences.changed.v1` | `PATCH /me/preferences` cambia de verdad `feed_language`. No genera mail: `posts-api` guarda una copia para filtrar el feed | `user_id`, `feed_language` |
 
 Cada evento es un sobre CloudEvents 1.0 (`specversion`, `id`, `source: users-api`, `type`, `time`,
 `data`). El `id` es un UUID nuevo y es la clave de idempotencia del consumidor.
