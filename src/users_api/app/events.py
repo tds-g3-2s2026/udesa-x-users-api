@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from users_api.app.models.feedback import Feedback
 from users_api.app.models.user import User
 
 SOURCE = "users-api"
@@ -25,6 +26,7 @@ PASSWORD_RESET_REQUESTED = "password.reset_requested.v1"
 PASSWORD_CHANGED = "password.changed.v1"
 USER_DELETED = "user.deleted.v1"
 PREFERENCES_CHANGED = "preferences.changed.v1"
+FEEDBACK_SUBMITTED = "feedback.submitted.v1"
 
 
 @dataclass(frozen=True)
@@ -119,4 +121,25 @@ def preferences_changed(user: User, *, now: datetime) -> Event:
         PREFERENCES_CHANGED,
         {"user_id": str(user.id), "feed_language": user.feed_language.value},
         now=now,
+    )
+
+
+def feedback_submitted(feedback: Feedback) -> Event:
+    """A message for the support account.
+
+    `message` is what the user typed, so it is untrusted: whoever renders it has
+    to treat it as text. `time` is the instant it was stored, not of the
+    publication.
+    """
+    return build_event(
+        FEEDBACK_SUBMITTED,
+        {
+            "feedback_id": str(feedback.id),
+            "user_id": str(feedback.user_id),
+            "handle": feedback.handle,
+            "message": feedback.message,
+            "device_os": feedback.device_os,
+            "app_version": feedback.app_version,
+        },
+        now=feedback.created_at,
     )

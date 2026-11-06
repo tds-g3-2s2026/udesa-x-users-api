@@ -42,6 +42,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
 | `POST /me/change-password` | Cambia la contraseña sabiendo la actual. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens de la cuenta. Deja en el outbox `password.changed.v1` |
 | `DELETE /me` | Da de baja la cuenta sabiendo la contraseña actual, que viaja en el body (`{"current_password": "..."}`). Marca `deleted_at` y no borra la fila: el email y el handle quedan reservados. Revoca todas las sesiones, la que hizo el pedido incluida, y todos los refresh tokens. Comparte con el cambio de contraseña el cupo de intentos fallidos. Deja en el outbox `user.deleted.v1`. Un administrador recibe `403`: sus cuentas se gestionan desde el backoffice |
+| `POST /me/feedback` | Recibe un comentario o reporte de error (`message`, hasta 500 caracteres, más `device_os` y `app_version`). Guarda el registro y deja en el outbox `feedback.submitted.v1`. Dos por hora por cuenta: el tercero recibe `429` |
 | `GET /me` | Devuelve el perfil de la cuenta autenticada |
 | `PATCH /me` | Edita `display_name` y `bio`. Rechaza `email` y `handle`, que no se pueden tocar acá |
 | `GET /me/preferences` | Devuelve `profile_visibility` y `feed_language` de la cuenta autenticada |
@@ -125,6 +126,7 @@ Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no s
 | `password.changed.v1` | `POST /me/change-password` cambia la contraseña | `user_id`, `email` |
 | `user.deleted.v1` | `DELETE /me` da de baja la cuenta. `time` es el instante de la baja, el mismo con el que se marca `deleted_at` | `user_id` |
 | `preferences.changed.v1` | `PATCH /me/preferences` cambia de verdad `feed_language`. No genera mail: `posts-api` guarda una copia para filtrar el feed | `user_id`, `feed_language` |
+| `feedback.submitted.v1` | `POST /me/feedback` guarda un comentario o reporte de error. `notifications-api` lo manda a la cuenta de soporte; `message` es texto del usuario, se muestra como texto | `feedback_id`, `user_id`, `handle`, `message`, `device_os`, `app_version` |
 
 Cada evento es un sobre CloudEvents 1.0 (`specversion`, `id`, `source: users-api`, `type`, `time`,
 `data`). El `id` es un UUID nuevo y es la clave de idempotencia del consumidor.

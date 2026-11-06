@@ -24,6 +24,7 @@ from users_api.app.clients.blocks import BlocksClient
 from users_api.app.errors import ProblemError
 from users_api.app.models.user import Role, User
 from users_api.app.repositories.audit import AuditLogRepository
+from users_api.app.repositories.feedback import FeedbackRepository
 from users_api.app.repositories.outbox import OutboxRepository
 from users_api.app.repositories.rate_limiter import RateLimiter
 from users_api.app.repositories.sessions import SessionStore
@@ -41,6 +42,7 @@ from users_api.infrastructure.database.audit_repository import SqlAlchemyAuditLo
 from users_api.infrastructure.database.email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
+from users_api.infrastructure.database.feedback_repository import SqlAlchemyFeedbackRepository
 from users_api.infrastructure.database.outbox_repository import SqlAlchemyOutboxRepository
 from users_api.infrastructure.database.password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
@@ -102,6 +104,10 @@ def get_outbox_repository(session: SessionDep) -> OutboxRepository:
     return SqlAlchemyOutboxRepository(session=session)
 
 
+def get_feedback_repository(session: SessionDep) -> FeedbackRepository:
+    return SqlAlchemyFeedbackRepository(session=session)
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 SigningKeyDep = Annotated[object, Depends(get_signing_key)]
 RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
@@ -115,6 +121,7 @@ ResetTokenRepositoryDep = Annotated[
 ]
 RefreshTokenRepositoryDep = Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)]
 OutboxRepositoryDep = Annotated[OutboxRepository, Depends(get_outbox_repository)]
+FeedbackRepositoryDep = Annotated[FeedbackRepository, Depends(get_feedback_repository)]
 
 
 # Rejects a missing or malformed Authorization header before anything else runs.
