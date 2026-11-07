@@ -281,12 +281,14 @@ class AuthService:
         self.deny_expired_temporary_password(user)
 
         await self.rate_limiter.reset(policy.key(identifier))
+        now = datetime.now(UTC)
+        # Same transaction as the session: a login that fails to finish leaves
+        # the last login as it was.
+        await self.users.record_login(user.id, now)
         access_token, expires_in = self.issue_session(user)
         # Every login starts a family of its own: the sessions of two devices
         # are separate chains, and closing one leaves the other open.
-        refresh_token = await self.issue_refresh_token(
-            user, family_id=uuid.uuid4(), now=datetime.now(UTC)
-        )
+        refresh_token = await self.issue_refresh_token(user, family_id=uuid.uuid4(), now=now)
         return IssuedSession(
             access_token=access_token, refresh_token=refresh_token, expires_in=expires_in
         )
@@ -331,6 +333,7 @@ class AuthService:
         self.deny_expired_temporary_password(user)
 
         await self.rate_limiter.reset(policy.key(email))
+        await self.users.record_login(user.id, datetime.now(UTC))
         token, expires_in = self.issue_session(user)
         return token, expires_in, user.must_change_password
 
