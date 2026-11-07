@@ -68,6 +68,7 @@ def to_response(user: User) -> UserAccountResponse:
         status_changed_at=user.status_changed_at,
         is_email_verified=user.is_email_verified,
         created_at=user.created_at,
+        last_login_at=user.last_login_at,
     )
 
 
