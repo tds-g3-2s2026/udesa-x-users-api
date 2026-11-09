@@ -112,14 +112,20 @@ def user_deleted(user: User, *, now: datetime) -> Event:
 
 
 def preferences_changed(user: User, *, now: datetime) -> Event:
-    """An account chose another language for its feed.
+    """An account changed its feed language or its profile visibility.
 
+    Carries both current values and not only the one that changed, so a consumer
+    that applies the event ends up with the whole preferences of the account.
     `time` is the instant the change was saved: two changes in a row can arrive
     out of order, and the consumer drops one older than the last it applied.
     """
     return build_event(
         PREFERENCES_CHANGED,
-        {"user_id": str(user.id), "feed_language": user.feed_language.value},
+        {
+            "user_id": str(user.id),
+            "feed_language": user.feed_language.value,
+            "profile_visibility": user.profile_visibility.value,
+        },
         now=now,
     )
 

@@ -123,6 +123,15 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self.session.get(UserModel, user_id)
         return to_domain(row) if row is not None else None
 
+    async def get_for_update(self, user_id: uuid.UUID) -> User | None:
+        row = await self.session.scalar(
+            select(UserModel)
+            .where(UserModel.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return to_domain(row) if row is not None else None
+
     async def find_by_identifier(self, identifier: str) -> User | None:
         row = await self.session.scalar(
             select(UserModel).where(

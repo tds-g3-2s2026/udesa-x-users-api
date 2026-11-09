@@ -5,6 +5,7 @@ The schemas under `contracts/events/` are the contract with the consumers
 """
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -12,7 +13,7 @@ import pytest
 from tests.schemas import validator_for
 from users_api.app import events
 from users_api.app.models.feedback import Feedback
-from users_api.app.models.user import User
+from users_api.app.models.user import ProfileVisibility, User
 
 NOW = datetime(2026, 10, 24, 10, 15, 2, 123456, tzinfo=UTC)
 USER = User(
@@ -48,6 +49,15 @@ BUILT = {
         )
     ),
 }
+
+
+def test_the_preferences_event_carries_the_visibility_the_account_has():
+    protected = replace(USER, profile_visibility=ProfileVisibility.PROTECTED)
+
+    event = events.preferences_changed(protected, now=NOW)
+
+    validator_for("preferences.changed.v1").validate(event.envelope)
+    assert event.envelope["data"]["profile_visibility"] == "protected"
 
 
 @pytest.mark.parametrize("event_type", BUILT)
