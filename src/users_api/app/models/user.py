@@ -91,6 +91,8 @@ class User:
     # silently hidden or missing content.
     profile_visibility: ProfileVisibility = ProfileVisibility.PUBLIC
     feed_language: FeedLanguage = FeedLanguage.ALL
+    # The account whose invitation link this one registered through.
+    invited_by_id: uuid.UUID | None = None
 
     @property
     def can_log_in(self) -> bool:

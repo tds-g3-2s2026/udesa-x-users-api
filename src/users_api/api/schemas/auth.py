@@ -57,6 +57,9 @@ class RegisterRequest(BaseModel):
     handle: str = Field(min_length=5, max_length=16)
     password: str = Field(min_length=PASSWORD_MIN_LENGTH)
     terms_accepted: bool
+    # The id carried by an invitation link. A plain string and not a UUID: a
+    # link that was cut or edited must not stop anybody from registering.
+    ref: str | None = None
 
     @field_validator("handle")
     @classmethod

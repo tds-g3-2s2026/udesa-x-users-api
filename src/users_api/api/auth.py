@@ -71,6 +71,7 @@ async def register(payload: RegisterRequest, service: ServiceDep) -> RegisterRes
         email=payload.email,
         handle=payload.handle,
         password=payload.password,
+        ref=payload.ref,
     )
     return RegisterResponse(id=str(user.id), email=user.email, handle=user.handle)
 
