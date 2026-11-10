@@ -31,7 +31,7 @@ MIGRATION = (
     / "versions"
     / "0007_idioma_de_cuentas_existentes.py"
 )
-VISIBILITY_MIGRATION = MIGRATION.with_name("0009_visibilidad_de_cuentas_existentes.py")
+VISIBILITY_MIGRATION = MIGRATION.with_name("0011_visibilidad_de_cuentas_existentes.py")
 
 
 async def signed_in(api) -> str:
