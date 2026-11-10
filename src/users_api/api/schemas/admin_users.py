@@ -66,6 +66,9 @@ class UserAccountResponse(BaseModel):
     status_changed_at: datetime | None
     is_email_verified: bool
     created_at: datetime
+    # The last successful login (E5-H9). Null on an account that has not
+    # logged in since it started being recorded.
+    last_login_at: datetime | None
 
 
 class UserAccountPage(BaseModel):

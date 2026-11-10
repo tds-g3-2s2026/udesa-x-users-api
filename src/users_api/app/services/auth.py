@@ -141,7 +141,9 @@ class AuthService:
     signing_key: object
     outbox: OutboxRepository
 
-    async def register(self, *, email: str, handle: str, password: str) -> User:
+    async def register(
+        self, *, email: str, handle: str, password: str, ref: str | None = None
+    ) -> User:
         # Normalising before storing is what makes uniqueness case-insensitive,
         # so Alumno@udesa.edu.ar collides with alumno@udesa.edu.ar.
         normalised_email = email.strip().lower()
@@ -158,6 +160,7 @@ class AuthService:
             )
 
         now = datetime.now(UTC)
+        inviter = await self.find_inviter(ref)
         user = await self.users.add(
             User(
                 email=normalised_email,
@@ -166,6 +169,7 @@ class AuthService:
                 is_email_verified=False,
                 terms_accepted=True,
                 terms_accepted_at=now,
+                invited_by_id=inviter.id if inviter else None,
             )
         )
 
@@ -174,6 +178,34 @@ class AuthService:
             events.user_registered(user, verification_url=verification_url, now=now)
         )
         return user
+
+    async def find_inviter(self, ref: str | None) -> User | None:
+        """The account an invitation link points at, if it can still be followed.
+
+        A link that leads nowhere never blocks a registration, whatever is wrong
+        with it: it only means the new account has no inviter.
+        """
+        if ref is None:
+            return None
+        try:
+            inviter_id = uuid.UUID(ref)
+        except ValueError:
+            return None
+        inviter = await self.users.get(inviter_id)
+        return inviter if inviter is not None and inviter.can_log_in else None
+
+    async def announce_invitation(self, invitee: User, *, now: datetime) -> None:
+        """Tell the consumers the invitee proved its address.
+
+        Sent on verification and not on registration: an account that never
+        verifies should not end up following anybody.
+        """
+        if invitee.invited_by_id is None:
+            return
+        inviter = await self.users.get(invitee.invited_by_id)
+        if inviter is None or not inviter.can_log_in:
+            return
+        await self.outbox.add(events.invitation_accepted(invitee, inviter, now=now))
 
     async def issue_verification_token(self, user: User, *, now: datetime) -> str:
         """Store a new token and return the link that carries it.
@@ -213,8 +245,13 @@ class AuthService:
 
         await self.verification_tokens.mark_used(token.id, used_at=now)
         user = await self.users.get(token.user_id)
-        user.is_email_verified = True
-        await self.users.update(user)
+        # A second link, from a resend, can still be unused after the first one
+        # verified the account. Announcing only the transition keeps the event
+        # to one per account.
+        if not user.is_email_verified:
+            user.is_email_verified = True
+            await self.users.update(user)
+            await self.announce_invitation(user, now=now)
         return user
 
     async def resend_verification(self, email: str) -> None:
@@ -281,12 +318,14 @@ class AuthService:
         self.deny_expired_temporary_password(user)
 
         await self.rate_limiter.reset(policy.key(identifier))
+        now = datetime.now(UTC)
+        # Same transaction as the session: a login that fails to finish leaves
+        # the last login as it was.
+        await self.users.record_login(user.id, now)
         access_token, expires_in = self.issue_session(user)
         # Every login starts a family of its own: the sessions of two devices
         # are separate chains, and closing one leaves the other open.
-        refresh_token = await self.issue_refresh_token(
-            user, family_id=uuid.uuid4(), now=datetime.now(UTC)
-        )
+        refresh_token = await self.issue_refresh_token(user, family_id=uuid.uuid4(), now=now)
         return IssuedSession(
             access_token=access_token, refresh_token=refresh_token, expires_in=expires_in
         )
@@ -331,6 +370,7 @@ class AuthService:
         self.deny_expired_temporary_password(user)
 
         await self.rate_limiter.reset(policy.key(email))
+        await self.users.record_login(user.id, datetime.now(UTC))
         token, expires_in = self.issue_session(user)
         return token, expires_in, user.must_change_password
 

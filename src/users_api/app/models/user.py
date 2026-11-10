@@ -80,6 +80,9 @@ class User:
     terms_accepted: bool = False
     terms_accepted_at: datetime | None = None
     created_at: datetime | None = None
+    # The last successful login, from the app or the backoffice. A refreshed
+    # session does not move it: the brief asks for the login.
+    last_login_at: datetime | None = None
     # The name shown to other people and a short biography, both unset until
     # the owner fills them in. The handle stays the identifier; these are
     # only what gets displayed.
@@ -91,6 +94,8 @@ class User:
     # silently hidden or missing content.
     profile_visibility: ProfileVisibility = ProfileVisibility.PUBLIC
     feed_language: FeedLanguage = FeedLanguage.ALL
+    # The account whose invitation link this one registered through.
+    invited_by_id: uuid.UUID | None = None
 
     @property
     def can_log_in(self) -> bool:

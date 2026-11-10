@@ -38,6 +38,7 @@ async def given_account(
     role: str = "user",
     status: str = "active",
     deleted: bool = False,
+    last_login_at: datetime | None = None,
 ) -> str:
     """An account straight into the table, with its creation date under control."""
     account_id = uuid.uuid4()
@@ -53,6 +54,7 @@ async def given_account(
                 status=status,
                 deleted_at=NOW if deleted else None,
                 created_at=created_at,
+                last_login_at=last_login_at,
             )
         )
     return str(account_id)
@@ -195,3 +197,47 @@ async def test_a_tampered_cursor_is_400(api):
 
     assert response.status_code == 400
     assert response.json()["type"].endswith("/invalid-cursor")
+
+
+async def test_e5_h9_ca2_search_brings_the_last_login_of_every_account(api):
+    headers = await administrator(api)
+    active = await given_account(
+        api,
+        "activa@udesa.edu.ar",
+        "@activa",
+        created_at=NOW,
+        last_login_at=NOW + timedelta(days=3),
+    )
+    never = await given_account(
+        api, "nunca@udesa.edu.ar", "@nunca", created_at=NOW - timedelta(days=1)
+    )
+
+    found = (await search(api, headers, "udesa.edu.ar")).json()["items"]
+
+    assert [one["id"] for one in found] == [active, never]
+    assert datetime.fromisoformat(found[0]["last_login_at"]) == NOW + timedelta(days=3)
+    # The panel shows "Nunca" for it: no date is made up.
+    assert found[1]["last_login_at"] is None
+
+
+async def test_e5_h9_ca2_the_detail_brings_it_too(api):
+    headers = await administrator(api)
+    account = await given_account(
+        api, "activa@udesa.edu.ar", "@activa", last_login_at=NOW + timedelta(hours=5)
+    )
+
+    body = (await api.client.get(f"/admin/users/{account}", headers=headers)).json()
+
+    assert datetime.fromisoformat(body["last_login_at"]) == NOW + timedelta(hours=5)
+
+
+async def test_e5_h9_a_login_from_the_app_shows_up_in_the_search(api):
+    headers = await administrator(api)
+    await api.register_and_verify(email="alumna@udesa.edu.ar", handle="@alumna")
+    before = datetime.now(UTC)
+
+    assert (await api.login(identifier="alumna@udesa.edu.ar")).status_code == 200
+
+    found = (await search(api, headers, "alumna")).json()["items"]
+    assert len(found) == 1
+    assert datetime.fromisoformat(found[0]["last_login_at"]) >= before

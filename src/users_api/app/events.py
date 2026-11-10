@@ -24,6 +24,7 @@ USER_REGISTERED = "user.registered.v1"
 EMAIL_VERIFICATION_REQUESTED = "email_verification.requested.v1"
 PASSWORD_RESET_REQUESTED = "password.reset_requested.v1"
 PASSWORD_CHANGED = "password.changed.v1"
+INVITATION_ACCEPTED = "invitation.accepted.v1"
 USER_DELETED = "user.deleted.v1"
 PREFERENCES_CHANGED = "preferences.changed.v1"
 FEEDBACK_SUBMITTED = "feedback.submitted.v1"
@@ -80,6 +81,26 @@ def email_verification_requested(user: User, *, verification_url: str, now: date
     return build_event(
         EMAIL_VERIFICATION_REQUESTED,
         {"user_id": str(user.id), "email": user.email, "verification_url": verification_url},
+        now=now,
+    )
+
+
+def invitation_accepted(invitee: User, inviter: User, *, now: datetime) -> Event:
+    """An invited account proved its address, so it can follow whoever invited it.
+
+    Carries both handles and the inviter's visibility: the consumer may not know
+    either account yet, and the visibility decides whether the follow is direct
+    or a request.
+    """
+    return build_event(
+        INVITATION_ACCEPTED,
+        {
+            "invitee_id": str(invitee.id),
+            "invitee_handle": invitee.handle,
+            "inviter_id": str(inviter.id),
+            "inviter_handle": inviter.handle,
+            "inviter_visibility": inviter.profile_visibility.value,
+        },
         now=now,
     )
 
