@@ -108,6 +108,9 @@ class UserModel(Base):
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # The last successful login (E5-H9). Null on an account that has not
+    # logged in since the column exists: no date is made up for it.
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     verification_tokens: Mapped[list["EmailVerificationTokenModel"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

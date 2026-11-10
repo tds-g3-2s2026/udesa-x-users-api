@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from users_api.app.errors import ProblemError
@@ -82,6 +83,7 @@ def to_domain(row: UserModel) -> User:
         terms_accepted=row.terms_accepted,
         terms_accepted_at=row.terms_accepted_at,
         created_at=row.created_at,
+        last_login_at=row.last_login_at,
         display_name=row.display_name,
         bio=row.bio,
         profile_visibility=ProfileVisibility(row.profile_visibility),
@@ -230,3 +232,8 @@ class SqlAlchemyUserRepository(UserRepository):
         row.bio = user.bio
         row.profile_visibility = user.profile_visibility.value
         row.feed_language = user.feed_language.value
+
+    async def record_login(self, user_id: uuid.UUID, at: datetime) -> None:
+        await self.session.execute(
+            sql_update(UserModel).where(UserModel.id == user_id).values(last_login_at=at)
+        )

@@ -7,6 +7,7 @@ else later, and what lets the unit tests replace it with a double.
 
 import uuid
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from users_api.app.models.search import SearchCandidate
 from users_api.app.models.user import AccountStatus, User
@@ -62,3 +63,11 @@ class UserRepository(ABC):
     @abstractmethod
     async def update(self, user: User) -> None:
         """Persist the changes made to an account already stored."""
+
+    @abstractmethod
+    async def record_login(self, user_id: uuid.UUID, at: datetime) -> None:
+        """Note that the account just logged in, touching nothing else.
+
+        Not `update`: that one writes back every column the caller read, so a
+        login racing an administrator's block would put the old status back.
+        """

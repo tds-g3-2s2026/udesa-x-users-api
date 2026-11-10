@@ -1,22 +1,26 @@
-"""App accounts as the backoffice reaches them: found and read (E5-H4), and blocked (E5-H5).
+"""App accounts as the backoffice reaches them: found and read (E5-H4), blocked (E5-H5)
+and exported (E5-H8).
 
 Same `/admin/users` prefix as `admin_users.py`, but a router of its own: that one
 manages administrators and refuses moderators, and this one is open to any
-administrator. `/search` is declared before `/{user_id}`, so "search" is never
-read as an id.
+administrator except for the export. `/search` and `/export.csv` are declared
+before `/{user_id}`, so neither is read as an id.
 """
 
 import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 
+from users_api.api.accounts_csv import csv_lines
 from users_api.api.deps import (
     AdministratorDep,
     AuditLogDep,
     RefreshTokenRepositoryDep,
     SessionStoreDep,
     SettingsDep,
+    SuperadminDep,
     UserRepositoryDep,
 )
 from users_api.api.schemas.admin_users import (
@@ -68,6 +72,7 @@ def to_response(user: User) -> UserAccountResponse:
         status_changed_at=user.status_changed_at,
         is_email_verified=user.is_email_verified,
         created_at=user.created_at,
+        last_login_at=user.last_login_at,
     )
 
 
@@ -81,6 +86,20 @@ async def search_accounts(
     """App accounts whose email or handle contain `q`, twenty per page, newest first."""
     users, next_cursor = await service.search(q, cursor=cursor)
     return UserAccountPage(items=[to_response(one) for one in users], next_cursor=next_cursor)
+
+
+@router.get("/export.csv")
+async def export_accounts(
+    _: SuperadminDep,
+    service: ServiceDep,
+    q: Annotated[str, Query(max_length=100)],
+) -> StreamingResponse:
+    """Every account the search finds for `q`, as a CSV download. Superadmin only (E5-H8)."""
+    return StreamingResponse(
+        csv_lines(service.export(q)),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="cuentas.csv"'},
+    )
 
 
 @router.get("/{user_id}")
