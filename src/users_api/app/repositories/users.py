@@ -22,6 +22,15 @@ class UserRepository(ABC):
     async def get(self, user_id: uuid.UUID) -> User | None: ...
 
     @abstractmethod
+    async def get_for_update(self, user_id: uuid.UUID) -> User | None:
+        """The account as it is stored now, locked until the transaction ends.
+
+        For a change that publishes an event about the account: the account the
+        request read at its start may be out of date by then, and two changes in
+        a row have to be stamped in the order they commit.
+        """
+
+    @abstractmethod
     async def find_by_identifier(self, identifier: str) -> User | None:
         """Look an account up by email or by handle, indistinctly.
 

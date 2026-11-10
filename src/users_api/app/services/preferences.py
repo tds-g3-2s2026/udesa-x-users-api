@@ -22,16 +22,27 @@ class PreferencesService:
         validated against the enum: this only decides which attributes to
         touch, the same split `ProfileService` uses.
 
-        Only a language that really changed is announced. The event goes in the
+        Only a value that really changed is announced. The event goes in the
         transaction of the request, so it commits or rolls back with the change.
+
+        The account is read again under a lock before anything is compared or
+        published: the one the request loaded at its start can be out of date,
+        and the event carries both preferences, so a stale one would announce a
+        value that is no longer the stored one. The lock also makes two changes
+        of the same account commit in the order their events are stamped.
         """
+        user = await self.users.get_for_update(user.id) or user
         previous_language = user.feed_language
+        previous_visibility = user.profile_visibility
         if "profile_visibility" in changes:
             user.profile_visibility = changes["profile_visibility"]
         if "feed_language" in changes:
             user.feed_language = changes["feed_language"]
         await self.users.update(user)
 
-        if user.feed_language is not previous_language:
+        if (
+            user.feed_language != previous_language
+            or user.profile_visibility != previous_visibility
+        ):
             await self.outbox.add(events.preferences_changed(user, now=datetime.now(UTC)))
         return user
