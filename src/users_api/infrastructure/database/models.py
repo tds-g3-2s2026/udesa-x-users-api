@@ -99,6 +99,14 @@ class UserModel(Base):
     )
     feed_language: Mapped[str] = mapped_column(String(16), default="all", server_default="all")
 
+    # Whose invitation link the account registered through. Closing an account
+    # keeps its row, so the reference never dangles.
+    invited_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        postgresql.UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_users_invited_by_id"),
+        default=None,
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     # The last successful login (E5-H9). Null on an account that has not
     # logged in since the column exists: no date is made up for it.

@@ -26,7 +26,7 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | Método y ruta | Qué hace |
 |---|---|
 | `GET /healthcheck` | Verifica PostgreSQL y Redis e informa la versión desplegada |
-| `POST /auth/register` | Crea la cuenta y deja en el outbox el evento `user.registered.v1`, con el link de verificación |
+| `POST /auth/register` | Crea la cuenta y deja en el outbox el evento `user.registered.v1`, con el link de verificación. Acepta `ref`, el id de la cuenta cuyo link de invitación se usó; si no lleva a una cuenta activa se ignora y el registro sigue |
 | `POST /auth/verify` | Consume el token y valida la cuenta |
 | `GET /auth/verify?token=` | Lo mismo, para el link del email: un cliente de correo solo puede abrirlo con `GET` |
 | `POST /auth/resend-verification` | Pide un link nuevo cuando el anterior expiró: deja en el outbox `email_verification.requested.v1` |
@@ -127,6 +127,7 @@ Los esquemas están en `contracts/events/`, copia de `udesa-x-platform` que no s
 | `password.changed.v1` | `POST /me/change-password` cambia la contraseña | `user_id`, `email` |
 | `user.deleted.v1` | `DELETE /me` da de baja la cuenta. `time` es el instante de la baja, el mismo con el que se marca `deleted_at` | `user_id` |
 | `preferences.changed.v1` | `PATCH /me/preferences` cambia de verdad `feed_language`. No genera mail: `posts-api` guarda una copia para filtrar el feed | `user_id`, `feed_language` |
+| `invitation.accepted.v1` | Una cuenta registrada con `ref` verifica su email y quien la invitó sigue activo. `posts-api` hace que la invitada siga a la invitadora | `invitee_id`, `invitee_handle`, `inviter_id`, `inviter_handle`, `inviter_visibility` |
 | `feedback.submitted.v1` | `POST /me/feedback` guarda un comentario o reporte de error. `notifications-api` lo manda a la cuenta de soporte; `message` es texto del usuario, se muestra como texto | `feedback_id`, `user_id`, `handle`, `message`, `device_os`, `app_version` |
 
 Cada evento es un sobre CloudEvents 1.0 (`specversion`, `id`, `source: users-api`, `type`, `time`,

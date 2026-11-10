@@ -21,6 +21,12 @@ USER = User(
     handle="alumno_01",
     password_hash="unused",
 )
+INVITER = User(
+    id=uuid.uuid4(),
+    email="ana@udesa.edu.ar",
+    handle="ana_dev",
+    password_hash="unused",
+)
 VERIFICATION_URL = "https://udesa-x.example/api/auth/verify?token=Zk3pQ9vX2mLr8sT1"
 
 BUILT = {
@@ -36,6 +42,7 @@ BUILT = {
     "password.changed.v1": lambda: events.password_changed(USER, now=NOW),
     "user.deleted.v1": lambda: events.user_deleted(USER, now=NOW),
     "preferences.changed.v1": lambda: events.preferences_changed(USER, now=NOW),
+    "invitation.accepted.v1": lambda: events.invitation_accepted(USER, INVITER, now=NOW),
     "feedback.submitted.v1": lambda: events.feedback_submitted(
         Feedback(
             id=uuid.uuid4(),

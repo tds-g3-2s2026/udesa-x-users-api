@@ -88,6 +88,7 @@ def to_domain(row: UserModel) -> User:
         bio=row.bio,
         profile_visibility=ProfileVisibility(row.profile_visibility),
         feed_language=FeedLanguage(row.feed_language),
+        invited_by_id=row.invited_by_id,
     )
 
 
@@ -114,6 +115,7 @@ class SqlAlchemyUserRepository(UserRepository):
             bio=user.bio,
             profile_visibility=user.profile_visibility.value,
             feed_language=user.feed_language.value,
+            invited_by_id=user.invited_by_id,
         )
         self.session.add(row)
         # Flushed and not committed: the caller needs the assigned id to hang
