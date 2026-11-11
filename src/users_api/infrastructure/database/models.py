@@ -11,7 +11,17 @@ can do live on the dataclasses under each feature's `domain.py`.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    false,
+    func,
+)
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,6 +50,11 @@ class UserModel(Base):
         CheckConstraint("feed_language IN ('es', 'en', 'all')", name="ck_users_feed_language"),
         CheckConstraint(
             "status IN ('active', 'suspended', 'under_review')", name="ck_users_status"
+        ),
+        CheckConstraint(
+            "interests <@ ARRAY['sports', 'technology', 'politics', 'music', 'science', "
+            "'movies', 'gaming', 'economy']::text[]",
+            name="ck_users_interests",
         ),
     )
 
@@ -105,6 +120,15 @@ class UserModel(Base):
         postgresql.UUID(as_uuid=True),
         ForeignKey("users.id", name="fk_users_invited_by_id"),
         default=None,
+    )
+
+    # An array and not a table of its own: the list is read and replaced whole,
+    # always together with the account. The CHECK holds the `Interest` codes.
+    interests: Mapped[list[str]] = mapped_column(
+        postgresql.ARRAY(Text()), default=list, server_default="{}"
+    )
+    onboarding_completed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
