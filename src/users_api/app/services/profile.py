@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 
 from users_api.app.errors import ProblemError
-from users_api.app.models.user import User
+from users_api.app.models.user import MIN_INTERESTS, User
 from users_api.app.repositories.users import UserRepository
 
 
@@ -26,6 +26,30 @@ class ProfileService:
             user.bio = changes["bio"]
         await self.users.update(user)
         return user
+
+    async def complete_onboarding(self, user: User) -> None:
+        """Mark the onboarding as done, once the account chose its interests.
+
+        Asking again is not an error: the app may repeat the call after a lost
+        answer. An account already done is left alone without looking at its
+        interests, which is the case of every account that existed before the
+        onboarding did.
+
+        The account is read again under a lock, so the interests checked are
+        the stored ones and not the ones the request loaded at its start.
+        """
+        user = await self.users.get_for_update(user.id) or user
+        if user.onboarding_completed:
+            return
+        if len(user.interests) < MIN_INTERESTS:
+            raise ProblemError(
+                status=422,
+                code="too-few-interests",
+                title="Faltan intereses",
+                detail=f"Elegí al menos {MIN_INTERESTS} intereses antes de terminar",
+            )
+        user.onboarding_completed = True
+        await self.users.update(user)
 
     async def public_profile(self, user_id: uuid.UUID) -> User:
         """The account behind another user's profile screen (E2-H14).

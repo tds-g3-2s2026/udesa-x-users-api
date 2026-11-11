@@ -36,6 +36,9 @@ class ProfileResponse(BaseModel):
     handle: str
     display_name: str | None
     bio: str | None
+    # The app reads it after each login to choose between the onboarding and
+    # the feed.
+    onboarding_completed: bool
 
 
 class PublicProfileResponse(BaseModel):
