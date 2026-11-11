@@ -37,6 +37,9 @@ La documentación interactiva de la API queda en `http://localhost:8000/docs`.
 | `GET /admin/users` | Lista los administradores con el estado de su credencial temporal. Solo `superadmin` |
 | `POST /admin/users/{id}/reset-temporary-password` | Genera una temporal nueva para una cuenta que todavía no eligió la suya. Solo `superadmin` |
 | `GET /admin/metrics` | Cuentas de la app verificadas y no borradas: activas (`active_users`) y en revisión (`accounts_under_review`). Cualquier administrador; un usuario común recibe `403` |
+| `GET /admin/feedback` | Bandeja de comentarios y reportes de error, de a 20 y del más nuevo al más viejo, con `?cursor=` para la página siguiente. `?status=` filtra entre `pending` (por defecto), `read` y `resolved`. Cada mensaje trae el handle con el que se envió y `account_available`, que es `false` si la cuenta se dio de baja. Cualquier administrador |
+| `POST /admin/feedback/{id}/read` | Pasa el mensaje de `pending` a `read` y responde `204`. Si ya estaba más adelante, no cambia nada: el estado nunca retrocede. Cualquier administrador |
+| `POST /admin/feedback/{id}/resolve` | Pasa el mensaje a `resolved`, que lo saca de la bandeja, y responde `204`. Repetirlo también da `204`. Un id que no existe responde `404` (`feedback-not-found`). Cualquier administrador |
 | `POST /auth/logout` | Revoca el access token activo. Acepta un cuerpo opcional `{"refresh_token": "..."}`: si el token es de la misma cuenta, revoca toda su sesión. Un token desconocido o ajeno se ignora, y el cierre sigue respondiendo `204` |
 | `POST /auth/forgot-password` | Pide el código de recuperación, con email o handle: deja en el outbox `password.reset_requested.v1`. El usuario lo pega en la app |
 | `POST /auth/reset-password` | Consume el link y cambia la contraseña. Revoca todas las sesiones de la cuenta y todos sus refresh tokens |
