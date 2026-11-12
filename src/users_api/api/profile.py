@@ -6,7 +6,7 @@ account you are already signed into, not a way to get one.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response, status
 
 from users_api.api.deps import CurrentUserDep, UserRepositoryDep
 from users_api.api.schemas.profile import ProfileResponse, UpdateProfileRequest
@@ -29,6 +29,7 @@ def to_response(user) -> ProfileResponse:
         handle=user.handle,
         display_name=user.display_name,
         bio=user.bio,
+        onboarding_completed=user.onboarding_completed,
     )
 
 
@@ -46,3 +47,9 @@ async def update_profile(
     changes = payload.model_dump(exclude_unset=True)
     updated = await service.update_profile(user, changes=changes)
     return to_response(updated)
+
+
+@router.post("/onboarding/complete", status_code=status.HTTP_204_NO_CONTENT)
+async def complete_onboarding(user: CurrentUserDep, service: ServiceDep) -> Response:
+    await service.complete_onboarding(user)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

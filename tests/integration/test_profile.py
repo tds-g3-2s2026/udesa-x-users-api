@@ -6,10 +6,16 @@ tested here is that authentication itself, not only the profile.
 """
 
 import os
+import uuid
 
+import anyio
 import pytest
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.integration.helpers import REGISTRATION
+from tests.integration.helpers import REGISTRATION, set_user_flag
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
@@ -76,6 +82,7 @@ async def test_updating_one_field_leaves_the_other_as_it_was(api):
         "handle": REGISTRATION["handle"],
         "display_name": "Juan Perez",
         "bio": "Nueva bio",
+        "onboarding_completed": False,
     }
 
 
@@ -90,3 +97,103 @@ async def test_update_profile_sanitizes_html_before_storing_it(api):
     assert response.status_code == 200
     assert response.json()["display_name"] == "Juan Perez"
     assert response.json()["bio"] == "Hola"
+
+
+# The migration before the one that adds the onboarding.
+BEFORE_ONBOARDING = "e27b5d83a1c4"
+
+
+async def complete_onboarding(api, token: str):
+    return await api.client.post(
+        "/me/onboarding/complete", headers={"Authorization": f"Bearer {token}"}
+    )
+
+
+async def test_a_new_account_has_not_done_the_onboarding(api):
+    token = await signed_in(api)
+
+    assert (await api.get_profile(token)).json()["onboarding_completed"] is False
+
+
+async def test_completing_the_onboarding_marks_it_done(api):
+    token = await signed_in(api)
+    await api.update_preferences(token, interests=["music", "sports", "gaming"])
+
+    response = await complete_onboarding(api, token)
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert (await api.get_profile(token)).json()["onboarding_completed"] is True
+
+
+async def test_completing_the_onboarding_twice_is_not_an_error(api):
+    token = await signed_in(api)
+    await api.update_preferences(token, interests=["music", "sports", "gaming"])
+    await complete_onboarding(api, token)
+
+    assert (await complete_onboarding(api, token)).status_code == 204
+
+
+async def test_the_onboarding_cannot_finish_without_three_interests(api):
+    token = await signed_in(api)
+
+    response = await complete_onboarding(api, token)
+
+    assert response.status_code == 422
+    body = response.json()
+    assert body["type"].endswith("/too-few-interests")
+    assert "errors" not in body
+    assert (await api.get_profile(token)).json()["onboarding_completed"] is False
+
+
+async def test_an_account_already_done_finishes_again_without_interests(api):
+    token = await signed_in(api)
+    await set_user_flag(api.app, "onboarding_completed", True)
+
+    assert (await complete_onboarding(api, token)).status_code == 204
+
+
+async def test_completing_the_onboarding_requires_a_session(api):
+    assert (await complete_onboarding(api, "token-invalido")).status_code == 401
+
+
+async def test_the_accounts_that_already_existed_skip_the_onboarding(clean_state):
+    config = Config("alembic.ini")
+    await anyio.to_thread.run_sync(command.downgrade, config, BEFORE_ONBOARDING)
+    try:
+        engine = create_async_engine(os.environ["DATABASE_URL"])
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO users (id, email, handle, password_hash, must_change_password, "
+                    "is_email_verified, terms_accepted) VALUES "
+                    "(:id, 'vieja@udesa.edu.ar', '@vieja', 'x', false, true, true)"
+                ),
+                {"id": uuid.uuid4()},
+            )
+        await engine.dispose()
+    finally:
+        await anyio.to_thread.run_sync(command.upgrade, config, "head")
+
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    async with engine.begin() as connection:
+        existing = (
+            await connection.execute(
+                text("SELECT onboarding_completed, interests FROM users WHERE handle = '@vieja'")
+            )
+        ).one()
+        await connection.execute(
+            text(
+                "INSERT INTO users (id, email, handle, password_hash, must_change_password, "
+                "is_email_verified, terms_accepted) VALUES "
+                "(:id, 'nueva@udesa.edu.ar', '@nueva', 'x', false, true, true)"
+            ),
+            {"id": uuid.uuid4()},
+        )
+        new = await connection.scalar(
+            text("SELECT onboarding_completed FROM users WHERE handle = '@nueva'")
+        )
+    await engine.dispose()
+
+    assert (existing.onboarding_completed, existing.interests) == (True, [])
+    assert new is False

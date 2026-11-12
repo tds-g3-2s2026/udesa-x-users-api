@@ -7,7 +7,7 @@ another engine. The table that stores it lives in
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
@@ -55,6 +55,28 @@ class FeedLanguage(StrEnum):
     ALL = "all"
 
 
+class Interest(StrEnum):
+    """The categories an account picks during onboarding.
+
+    Only stored and returned: nothing filters or ranks by them yet. The app owns
+    the names it shows for each code.
+    """
+
+    SPORTS = "sports"
+    TECHNOLOGY = "technology"
+    POLITICS = "politics"
+    MUSIC = "music"
+    SCIENCE = "science"
+    MOVIES = "movies"
+    GAMING = "gaming"
+    ECONOMY = "economy"
+
+
+# The fewest interests an account can be left with, and the ones it needs before
+# it can finish the onboarding.
+MIN_INTERESTS = 3
+
+
 @dataclass
 class User:
     email: str
@@ -96,6 +118,11 @@ class User:
     feed_language: FeedLanguage = FeedLanguage.ALL
     # The account whose invitation link this one registered through.
     invited_by_id: uuid.UUID | None = None
+    # In the order the owner sent them. Empty until the onboarding asks for them.
+    interests: list[Interest] = field(default_factory=list)
+    # Raised once the owner went through the onboarding, so the app shows it
+    # only before the first feed.
+    onboarding_completed: bool = False
 
     @property
     def can_log_in(self) -> bool:

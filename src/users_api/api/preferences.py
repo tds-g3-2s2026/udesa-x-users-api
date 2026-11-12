@@ -30,6 +30,7 @@ def to_response(user) -> PreferencesResponse:
     return PreferencesResponse(
         profile_visibility=user.profile_visibility,
         feed_language=user.feed_language,
+        interests=user.interests,
     )
 
 

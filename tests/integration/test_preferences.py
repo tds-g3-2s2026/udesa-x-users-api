@@ -49,7 +49,11 @@ async def test_e1_h7_ca5_registration_assigns_default_preferences(api):
 
     response = await api.get_preferences(token)
     assert response.status_code == 200
-    assert response.json() == {"profile_visibility": "public", "feed_language": "all"}
+    assert response.json() == {
+        "profile_visibility": "public",
+        "feed_language": "all",
+        "interests": [],
+    }
 
 
 async def test_e1_h7_ca1_profile_visibility_can_be_switched(api):
@@ -62,7 +66,11 @@ async def test_e1_h7_ca1_profile_visibility_can_be_switched(api):
     # And it persists: a separate read confirms it, and the other preference
     # was left as it was.
     preferences = await api.get_preferences(token)
-    assert preferences.json() == {"profile_visibility": "protected", "feed_language": "all"}
+    assert preferences.json() == {
+        "profile_visibility": "protected",
+        "feed_language": "all",
+        "interests": [],
+    }
 
 
 async def test_e1_h7_ca2_feed_language_can_be_chosen(api):
@@ -79,7 +87,11 @@ async def test_updating_one_preference_leaves_the_other_as_it_was(api):
 
     response = await api.update_preferences(token, feed_language="all")
     assert response.status_code == 200
-    assert response.json() == {"profile_visibility": "protected", "feed_language": "all"}
+    assert response.json() == {
+        "profile_visibility": "protected",
+        "feed_language": "all",
+        "interests": [],
+    }
 
 
 async def test_an_unknown_preference_is_rejected_and_not_ignored(api):
@@ -320,4 +332,69 @@ async def test_the_preferences_and_their_event_commit_or_roll_back_together(api,
             await api.update_preferences(token, feed_language="es")
 
     assert (await api.get_preferences(token)).json()["feed_language"] == "all"
+    assert await preference_events(api) == []
+
+
+THREE = ["music", "sports", "gaming"]
+
+
+async def test_e1_h14_ca2_fewer_than_three_interests_are_rejected(api):
+    token = await signed_in(api)
+
+    response = await api.update_preferences(token, interests=["sports", "music"])
+
+    assert response.status_code == 422
+    assert [error["field"] for error in response.json()["errors"]] == ["interests"]
+    assert (await api.get_preferences(token)).json()["interests"] == []
+
+
+async def test_the_interests_come_back_in_the_order_they_were_sent(api):
+    token = await signed_in(api)
+
+    response = await api.update_preferences(token, interests=THREE)
+
+    assert response.status_code == 200
+    assert response.json()["interests"] == THREE
+    assert (await api.get_preferences(token)).json()["interests"] == THREE
+
+
+async def test_sending_the_interests_replaces_the_whole_list(api):
+    token = await signed_in(api)
+    await api.update_preferences(token, interests=THREE)
+
+    replacement = ["economy", "science", "politics", "technology"]
+    response = await api.update_preferences(token, interests=replacement)
+
+    assert response.json()["interests"] == replacement
+
+
+@pytest.mark.parametrize(
+    "interests",
+    [
+        ["sports", "music", "cooking"],
+        ["sports", "sports", "music"],
+        None,
+    ],
+    ids=["unknown", "repeated", "null"],
+)
+async def test_an_invalid_list_of_interests_is_rejected_on_the_field(api, interests):
+    token = await signed_in(api)
+
+    response = await api.update_preferences(token, interests=interests)
+
+    assert response.status_code == 422
+    assert [error["field"] for error in response.json()["errors"]] == ["interests"]
+    assert (await api.get_preferences(token)).json()["interests"] == []
+
+
+async def test_choosing_interests_leaves_the_other_preferences_and_queues_nothing(api):
+    token = await signed_in(api)
+
+    response = await api.update_preferences(token, interests=THREE)
+
+    assert response.json() == {
+        "profile_visibility": "public",
+        "feed_language": "all",
+        "interests": THREE,
+    }
     assert await preference_events(api) == []
