@@ -168,13 +168,17 @@ con la consola de administración en `http://localhost:15672` y los puertos publ
 
 ## Despliegue en Kubernetes
 
-Los cuatro manifiestos de `k8s/` usan el namespace `tds-group-3`, según
+Los manifiestos de `k8s/` usan el namespace `tds-group-3`, según
 [ADR-008](https://github.com/tds-g3-2s2026/udesa-x-platform/blob/main/docs/adr/ADR-008-plataforma-de-despliegue.md).
-El Deployment tiene una réplica, requests de `100m` / `128Mi` y limits de
-`500m` / `512Mi`, dentro de los límites definidos por la cátedra. El rolling update
-requiere un slot adicional de pod y cuota para el surge y los Jobs de migración.
-Si no alcanza el margen, esperar o liberar capacidad antes del rollout, sin cambiar
-automáticamente la estrategia para interrumpir el servicio.
+Cada réplica tiene requests de `100m` / `128Mi` y limits de `500m` / `512Mi`, dentro de los
+límites definidos por la cátedra. `k8s/hpa.yaml` es un HorizontalPodAutoscaler: sube el
+Deployment de una a dos réplicas cuando el uso promedio de CPU pasa de `250m` por pod, la mitad
+del límite, y lo vuelve a bajar unos minutos después de que baja la carga. Por eso
+`k8s/deployment.yaml` no fija `replicas`: si lo hiciera, cada deploy volvería el servicio a una
+réplica. El máximo sale de la cuota del namespace, compartida con los rollouts (README de
+`udesa-x-platform`, "Autoescalado"). El rolling update requiere un slot adicional de pod y cuota
+para el surge y los Jobs de migración. Si no alcanza el margen, esperar o liberar capacidad antes
+del rollout, sin cambiar automáticamente la estrategia para interrumpir el servicio.
 
 Cada push a `main` que pasa el CI despliega solo, con el job `deploy` de
 `.github/workflows/ci.yml`, que llama a `deploy.yml` de `udesa-x-platform`. Ese pipeline
