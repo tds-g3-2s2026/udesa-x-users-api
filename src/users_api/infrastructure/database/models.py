@@ -252,6 +252,11 @@ class FeedbackModel(Base):
     """
 
     __tablename__ = "feedback"
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'read', 'resolved')", name="ck_feedback_status"),
+        # Read backwards for the inbox, which lists one status newest first.
+        Index("ix_feedback_status_created_at_id", "status", "created_at", "id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True), primary_key=True)
     user_id: Mapped[uuid.UUID] = mapped_column(postgresql.UUID(as_uuid=True))
@@ -260,6 +265,8 @@ class FeedbackModel(Base):
     device_os: Mapped[str] = mapped_column(Text)
     app_version: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Same shape as `users.role`: text plus a CHECK. The values are `FeedbackStatus`.
+    status: Mapped[str] = mapped_column(Text, default="pending", server_default="pending")
 
 
 class AuditLogModel(Base):
