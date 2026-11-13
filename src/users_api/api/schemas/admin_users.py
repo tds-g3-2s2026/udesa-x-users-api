@@ -59,6 +59,8 @@ class UserAccountResponse(BaseModel):
     email: str
     handle: str
     display_name: str | None
+    # So the panel shows what "Limpiar Contenido" would clear (E5-H10).
+    bio: str | None
     status: Literal["active", "suspended", "under_review"]
     # Why and when `status` last changed. The reason only an administrator's
     # block leaves; both null on an account that never changed.

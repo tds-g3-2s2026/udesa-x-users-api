@@ -274,7 +274,8 @@ class AuditLogModel(Base):
     __table_args__ = (
         CheckConstraint(
             "action IN ('admin.created', 'admin.temporary_password_reset', "
-            "'user.blocked', 'report.dismissed', 'report.resolved')",
+            "'user.blocked', 'report.dismissed', 'report.resolved', "
+            "'user.content_cleaned', 'post.content_cleaned')",
             name="ck_admin_audit_action",
         ),
     )
