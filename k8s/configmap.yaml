@@ -14,3 +14,7 @@ data:
   PGSSLROOTCERT: "/etc/ssl/certs/rds-ca-us-east-2.pem"
   # Logs y trazas a Grafana Cloud. El token va en el Secret.
   OTEL_EXPORTER_OTLP_ENDPOINT: "https://otlp-gateway-prod-sa-east-1.grafana.net/otlp"
+  # Handle del superadmin que siembra el deploy. `@superadmin` es de la primera
+  # cuenta, cuya contraseña se perdió, y la columna es única: con otro
+  # SUPERADMIN_EMAIL y este handle, el seed crea una cuenta nueva.
+  SUPERADMIN_HANDLE: "@superadmin2"

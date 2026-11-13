@@ -244,6 +244,11 @@ Es idempotente: si la cuenta existe, no la toca (ni rol ni contraseña) y termin
 Sin las dos variables, o con una contraseña que no cumpla la política del registro, termina con
 código `2` y no abre conexión. Los administradores siguientes se crean desde el panel (`E5-H1`).
 
+Como no toca una cuenta que ya existe, cambiar `SUPERADMIN_PASSWORD` no cambia la contraseña de
+producción. Si se pierde, se siembra otro superadmin: un `SUPERADMIN_EMAIL` nuevo y un
+`SUPERADMIN_HANDLE` nuevo en `k8s/configmap.yaml`, porque el handle también es único. Primero se
+cargan los secrets y después se mergea, porque el despliegue los lee al correr.
+
 ## Migraciones
 
 El esquema se maneja con Alembic. En desarrollo la migración se aplica sola al levantar el
