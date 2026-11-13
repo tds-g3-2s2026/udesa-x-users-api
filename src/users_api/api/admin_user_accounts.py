@@ -1,5 +1,5 @@
-"""App accounts as the backoffice reaches them: found and read (E5-H4), blocked (E5-H5)
-and exported (E5-H8).
+"""App accounts as the backoffice reaches them: found and read (E5-H4), blocked (E5-H5),
+exported (E5-H8) and their biography cleared (E5-H10).
 
 Same `/admin/users` prefix as `admin_users.py`, but a router of its own: that one
 manages administrators and refuses moderators, and this one is open to any
@@ -30,6 +30,7 @@ from users_api.api.schemas.admin_users import (
 )
 from users_api.app.models.user import User
 from users_api.app.services.account_block import AccountBlockService
+from users_api.app.services.account_content import AccountContentService
 from users_api.app.services.admin_user_accounts import AdminUserAccountService
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
@@ -61,12 +62,22 @@ async def get_block_service(
 BlockServiceDep = Annotated[AccountBlockService, Depends(get_block_service)]
 
 
+async def get_content_service(
+    users: UserRepositoryDep, audit: AuditLogDep
+) -> AccountContentService:
+    return AccountContentService(users=users, audit=audit)
+
+
+ContentServiceDep = Annotated[AccountContentService, Depends(get_content_service)]
+
+
 def to_response(user: User) -> UserAccountResponse:
     return UserAccountResponse(
         id=str(user.id),
         email=user.email,
         handle=user.handle,
         display_name=user.display_name,
+        bio=user.bio,
         status=user.status.value,
         status_reason=user.status_reason,
         status_changed_at=user.status_changed_at,
@@ -123,3 +134,11 @@ async def block_account(
     keeps the first reason.
     """
     await service.block(administrator, user_id, body.reason)
+
+
+@router.post("/{user_id}/clean-content", status_code=status.HTTP_204_NO_CONTENT)
+async def clean_account_content(
+    user_id: uuid.UUID, administrator: AdministratorDep, service: ContentServiceDep
+) -> None:
+    """Replace the biography with the moderation placeholder (E5-H10). Any administrator."""
+    await service.clean(administrator, user_id)
