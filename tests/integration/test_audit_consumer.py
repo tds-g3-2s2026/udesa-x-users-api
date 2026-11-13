@@ -220,3 +220,18 @@ async def test_e5_h6_shutdown_waits_for_in_flight_audit_to_commit(api):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+
+async def test_e5_h10_a_cleaned_post_is_stored_with_its_author(api):
+    schema = json.loads(Path("contracts/events/admin.action_recorded.v1.json").read_text())
+    message = schema["examples"][1]
+    message["id"] = str(uuid.uuid4())
+    handler = build_event_handler(api.app.state.session_factory)
+
+    assert await handler(json.dumps(message).encode()) == "ack"
+
+    async with api.app.state.session_factory() as session:
+        entry = await session.get(AuditLogModel, uuid.UUID(message["id"]))
+    assert (entry.action, entry.target_type) == ("post.content_cleaned", "post")
+    assert str(entry.target_id) == message["data"]["target_id"]
+    assert entry.details == message["data"]["details"]
