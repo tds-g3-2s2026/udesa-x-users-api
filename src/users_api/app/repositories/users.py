@@ -67,6 +67,16 @@ class UserRepository(ABC):
         deleted accounts excluded."""
 
     @abstractmethod
+    async def count_registrations_per_day(self, since: datetime, days: int) -> dict[int, int]:
+        """App accounts created in each of `days` consecutive 24-hour spans from `since`.
+
+        The key is the span's position, 0 for the one that starts at `since`. A span
+        with no accounts is missing: filling the gaps is the caller's job. Every
+        account counts, verified or not and deleted or not, because the question is
+        how many were created. Administrators are left out.
+        """
+
+    @abstractmethod
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool: ...
 
     @abstractmethod

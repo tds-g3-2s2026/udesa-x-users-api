@@ -14,7 +14,7 @@ import base64
 import binascii
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy import update as sql_update
@@ -222,6 +222,22 @@ class SqlAlchemyUserRepository(UserRepository):
                 UserModel.deleted_at.is_(None),
             )
         )
+
+    async def count_registrations_per_day(self, since: datetime, days: int) -> dict[int, int]:
+        # The span an account falls in is how many whole days passed between
+        # `since` and its creation. Counting from `since` and not from a calendar
+        # date keeps the spans where the caller's own midnight is.
+        span = func.floor((func.extract("epoch", UserModel.created_at) - since.timestamp()) / 86400)
+        rows = await self.session.execute(
+            select(span, func.count())
+            .where(
+                UserModel.role == Role.USER.value,
+                UserModel.created_at >= since,
+                UserModel.created_at < since + timedelta(days=days),
+            )
+            .group_by(span)
+        )
+        return {int(position): count for position, count in rows}
 
     async def exists_with_email_or_handle(self, email: str, handle: str) -> bool:
         taken = await self.session.scalar(
