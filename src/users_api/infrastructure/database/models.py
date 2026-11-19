@@ -43,6 +43,8 @@ class UserModel(Base):
             postgresql_using="gin",
             postgresql_ops={"display_name": "gin_trgm_ops"},
         ),
+        # The registrations per day of the dashboard read accounts by creation date.
+        Index("ix_users_created_at", "created_at"),
         CheckConstraint("role IN ('user', 'moderator', 'superadmin')", name="ck_users_role"),
         CheckConstraint(
             "profile_visibility IN ('public', 'protected')", name="ck_users_profile_visibility"
