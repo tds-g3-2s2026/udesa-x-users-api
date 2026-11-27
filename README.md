@@ -1,5 +1,7 @@
 # UdeSA-X Users API
 
+[![Cobertura](https://codecov.io/gh/tds-g3-2s2026/udesa-x-users-api/branch/main/graph/badge.svg)](https://codecov.io/gh/tds-g3-2s2026/udesa-x-users-api)
+
 Microservicio backend responsable de la gestión de identidades, registro de usuarios, edición de perfiles, inicio de sesión (incluyendo Social Login) y seguridad.
 
 **Stack:** Python 3.13, FastAPI, SQLAlchemy 2 async con asyncpg, PostgreSQL, Redis y RabbitMQ (aio-pika). Gestión de dependencias con uv, linting con Ruff.
