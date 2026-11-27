@@ -24,7 +24,8 @@ from users_api.app.security import (
     hash_password,
     hash_token,
     issue_access_token,
-    verify_password,
+    password_needs_rehash,
+    verify_login_password,
 )
 from users_api.config.settings import API_PREFIX, Settings
 
@@ -149,6 +150,7 @@ class AuthService:
         normalised_email = email.strip().lower()
         normalised_handle = handle.strip().lower()
 
+        password_hash = await hash_password(password)
         if await self.users.exists_with_email_or_handle(normalised_email, normalised_handle):
             # The message does not say which of the two collided, to avoid
             # turning registration into an account oracle.
@@ -165,7 +167,7 @@ class AuthService:
             User(
                 email=normalised_email,
                 handle=normalised_handle,
-                password_hash=hash_password(password),
+                password_hash=password_hash,
                 is_email_verified=False,
                 terms_accepted=True,
                 terms_accepted_at=now,
@@ -286,42 +288,8 @@ class AuthService:
         )
 
     async def login(self, *, identifier: str, password: str) -> IssuedSession:
-        policy = self.app_login_policy
-        await self.guard_lockout(identifier, policy)
-
-        user = await self.users.find_by_identifier(identifier.strip().lower())
-
-        # The password is always verified, even when the account does not exist,
-        # so the response time does not reveal which accounts are registered.
-        if not verify_password(password, user.password_hash if user else None):
-            await self.register_failure(identifier, policy)
-            raise ProblemError(
-                status=401,
-                code="invalid-credentials",
-                title="No se pudo iniciar sesión",
-                detail=INVALID_CREDENTIALS,
-            )
-
-        # Only now, with the password proven, is the account state revealed. The
-        # caller already showed they own the account, so these messages can be
-        # specific without becoming an enumeration vector.
-        deny_blocked_account(user, title="No se pudo iniciar sesión")
-
-        if not user.is_email_verified:
-            raise ProblemError(
-                status=403,
-                code="account-not-verified",
-                title="No se pudo iniciar sesión",
-                detail=UNVERIFIED_ACCOUNT,
-            )
-
-        self.deny_expired_temporary_password(user)
-
-        await self.rate_limiter.reset(policy.key(identifier))
+        user = await self._authenticate_login(identifier, password, backoffice=False)
         now = datetime.now(UTC)
-        # Same transaction as the session: a login that fails to finish leaves
-        # the last login as it was.
-        await self.users.record_login(user.id, now)
         access_token, expires_in = self.issue_session(user)
         # Every login starts a family of its own: the sessions of two devices
         # are separate chains, and closing one leaves the other open.
@@ -340,39 +308,53 @@ class AuthService:
         straight to the password screen. The session is handed out either way:
         it is the only way to reach the endpoint that changes the password.
         """
-        policy = self.admin_login_policy
-        await self.guard_lockout(email, policy)
-
-        user = await self.users.find_by_email(email.strip().lower())
-
-        if not verify_password(password, user.password_hash if user else None):
-            await self.register_failure(email, policy)
-            raise ProblemError(
-                status=401,
-                code="invalid-credentials",
-                title="No se pudo iniciar sesión",
-                detail=INVALID_CREDENTIALS,
-            )
-
-        # 403 and not 401: the caller proved they own the account, what they lack
-        # is the permission. Not counted as a failure either, since a correct
-        # password is not a brute force signal.
-        if not user.is_administrator:
-            raise ProblemError(
-                status=403,
-                code="not-an-administrator",
-                title="No se pudo iniciar sesión",
-                detail=NOT_AN_ADMINISTRATOR,
-            )
-
-        deny_blocked_account(user, title="No se pudo iniciar sesión")
-
-        self.deny_expired_temporary_password(user)
-
-        await self.rate_limiter.reset(policy.key(email))
-        await self.users.record_login(user.id, datetime.now(UTC))
+        user = await self._authenticate_login(email, password, backoffice=True)
         token, expires_in = self.issue_session(user)
         return token, expires_in, user.must_change_password
+
+    async def _authenticate_login(
+        self, identifier: str, password: str, *, backoffice: bool
+    ) -> User:
+        policy = self.admin_login_policy if backoffice else self.app_login_policy
+        await self.guard_lockout(identifier, policy)
+        user = await self.users.find_for_login(identifier.strip().lower(), email_only=backoffice)
+
+        while await verify_login_password(password, user.password_hash if user else None):
+            if backoffice and not user.is_administrator:
+                raise ProblemError(
+                    status=403,
+                    code="not-an-administrator",
+                    title="No se pudo iniciar sesión",
+                    detail=NOT_AN_ADMINISTRATOR,
+                )
+            deny_blocked_account(user, title="No se pudo iniciar sesión")
+            if not backoffice and not user.is_email_verified:
+                raise ProblemError(
+                    status=403,
+                    code="account-not-verified",
+                    title="No se pudo iniciar sesión",
+                    detail=UNVERIFIED_ACCOUNT,
+                )
+            self.deny_expired_temporary_password(user)
+
+            new_hash = None
+            if password_needs_rehash(user.password_hash):
+                new_hash = await hash_password(password)
+            if await self.users.record_login(
+                user.id, datetime.now(UTC), expected_hash=user.password_hash, new_hash=new_hash
+            ):
+                await self.rate_limiter.reset(policy.key(identifier))
+                return user
+            # Keep the current credentials stable through revalidation and session issuance.
+            user = await self.users.get_for_update(user.id)
+
+        await self.register_failure(identifier, policy)
+        raise ProblemError(
+            status=401,
+            code="invalid-credentials",
+            title="No se pudo iniciar sesión",
+            detail=INVALID_CREDENTIALS,
+        )
 
     def deny_expired_temporary_password(
         self, user: User, *, title: str = "No se pudo iniciar sesión"

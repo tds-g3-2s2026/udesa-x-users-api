@@ -1,15 +1,27 @@
+import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from argon2 import PasswordHasher, extract_parameters
 from sqlalchemy import text
 
 from tests.integration.helpers import REGISTRATION, set_user_flag
+from users_api.app.security import hash_password
+from users_api.app.services import auth
+from users_api.infrastructure.database.user_repository import SqlAlchemyUserRepository
 
 pytestmark = pytest.mark.skipif(
     not os.getenv("DATABASE_URL") or not os.getenv("REDIS_URL") or not os.getenv("RABBITMQ_URL"),
     reason="requires DATABASE_URL, REDIS_URL and RABBITMQ_URL pointing at real services",
 )
+
+
+@pytest.fixture
+def legacy_password_hash():
+    return PasswordHasher(memory_cost=65536, time_cost=3, parallelism=4).hash(
+        REGISTRATION["password"]
+    )
 
 
 async def test_e1_h1_ca1_login_denied_until_account_is_verified(api):
@@ -110,6 +122,157 @@ async def test_e1_h2_ca1_login_returns_a_jwt_with_expiration(api):
 async def test_e1_h2_ca1_login_also_works_with_the_handle(api):
     await api.register_and_verify()
     assert (await api.login(identifier=REGISTRATION["handle"])).status_code == 200
+
+
+@pytest.mark.parametrize("backoffice", [False, True], ids=["app", "backoffice"])
+async def test_successful_login_rehashes_the_legacy_password_once(
+    api, backoffice, legacy_password_hash
+):
+    await api.register_and_verify()
+    if backoffice:
+        await set_user_flag(api.app, "role", "moderator")
+    login = api.admin_login if backoffice else api.login
+
+    await set_user_flag(api.app, "password_hash", legacy_password_hash)
+
+    async def stored_hash():
+        async with api.app.state.engine.connect() as connection:
+            return await connection.scalar(text("SELECT password_hash FROM users"))
+
+    assert (await login(password="Incorrecta1")).status_code == 401
+    assert await stored_hash() == legacy_password_hash
+    assert (await login()).status_code == 200
+    current_hash = await stored_hash()
+    parameters = extract_parameters(current_hash)
+    assert (parameters.memory_cost, parameters.time_cost, parameters.parallelism) == (19456, 2, 1)
+    assert (await login()).status_code == 200
+    assert await stored_hash() == current_hash
+
+
+async def test_rehash_keeps_a_password_that_changed_after_the_login_read_it(api):
+    await api.register_and_verify()
+    async with api.app.state.engine.connect() as connection:
+        user_id, verified_hash = (
+            await connection.execute(text("SELECT id, password_hash FROM users"))
+        ).one()
+    changed_hash = await hash_password("DifferentPassword1")
+    await set_user_flag(api.app, "password_hash", changed_hash)
+
+    async with api.app.state.session_factory.begin() as session:
+        assert not await SqlAlchemyUserRepository(session).record_login(
+            user_id,
+            datetime.now(UTC),
+            expected_hash=verified_hash,
+            new_hash=await hash_password(REGISTRATION["password"]),
+        )
+
+    assert (await api.login(password="DifferentPassword1")).status_code == 200
+
+
+@pytest.mark.parametrize("backoffice", [False, True], ids=["app", "backoffice"])
+@pytest.mark.parametrize("same_password", [False, True], ids=["changed", "rehashed"])
+async def test_session_requires_the_current_password_after_a_conditional_write_misses(
+    api, monkeypatch, backoffice, same_password, legacy_password_hash
+):
+    await api.register_and_verify()
+    if backoffice:
+        await set_user_flag(api.app, "role", "moderator")
+    await set_user_flag(api.app, "password_hash", legacy_password_hash)
+    new_password = REGISTRATION["password"] if same_password else "DifferentPassword1"
+    winner_hash = await hash_password(new_password)
+    original_hash = auth.hash_password
+
+    async def finish_concurrent_update(password):
+        await set_user_flag(api.app, "password_hash", winner_hash)
+        return await original_hash(password)
+
+    monkeypatch.setattr(auth, "hash_password", finish_concurrent_update)
+    login = api.admin_login if backoffice else api.login
+    response = await login()
+    assert response.status_code == (200 if same_password else 401)
+    if not same_password:
+        assert response.json()["type"].endswith("/invalid-credentials")
+    async with api.app.state.engine.connect() as connection:
+        digest, last_login = (
+            await connection.execute(text("SELECT password_hash, last_login_at FROM users"))
+        ).one()
+        assert digest == winner_hash
+        assert (last_login is not None) == same_password
+        assert await connection.scalar(text("SELECT count(*) FROM refresh_tokens")) == int(
+            same_password and not backoffice
+        )
+
+
+async def test_registration_hashes_before_checking_out_a_connection(api, monkeypatch):
+    original_hash = auth.hash_password
+
+    async def check_pool(password):
+        assert api.app.state.engine.pool.checkedout() == 0
+        return await original_hash(password)
+
+    monkeypatch.setattr(auth, "hash_password", check_pool)
+    assert (await api.register()).status_code == 201
+
+
+async def test_registration_writes_a_hash_with_the_reduced_cost(api):
+    await api.register_and_verify()
+    async with api.app.state.engine.connect() as connection:
+        digest = await connection.scalar(text("SELECT password_hash FROM users"))
+    parameters = extract_parameters(digest)
+    assert (parameters.memory_cost, parameters.time_cost, parameters.parallelism) == (19456, 2, 1)
+
+
+@pytest.mark.parametrize("backoffice", [False, True], ids=["app", "backoffice"])
+async def test_login_releases_the_read_connection_before_waiting_for_argon2(
+    api, monkeypatch, backoffice
+):
+    await api.register_and_verify()
+    if backoffice:
+        await set_user_flag(api.app, "role", "moderator")
+    login = api.admin_login if backoffice else api.login
+    waiting = asyncio.Event()
+    proceed = asyncio.Event()
+    original = auth.verify_login_password
+
+    async def delayed_verify(password, digest):
+        waiting.set()
+        await proceed.wait()
+        return await original(password, digest)
+
+    monkeypatch.setattr(auth, "verify_login_password", delayed_verify)
+    pending = asyncio.create_task(login())
+    try:
+        await asyncio.wait_for(waiting.wait(), 2)
+        assert api.app.state.engine.pool.checkedout() == 0
+    finally:
+        proceed.set()
+        response = await pending
+    assert response.status_code == 200
+
+
+async def test_login_computes_the_new_hash_before_taking_the_user_row_lock(
+    api, monkeypatch, legacy_password_hash
+):
+    await api.register_and_verify()
+    await set_user_flag(api.app, "password_hash", legacy_password_hash)
+    waiting = asyncio.Event()
+    proceed = asyncio.Event()
+
+    async def delayed_hash(password):
+        waiting.set()
+        await proceed.wait()
+        return await hash_password(password)
+
+    monkeypatch.setattr(auth, "hash_password", delayed_hash)
+    pending = asyncio.create_task(api.login())
+    try:
+        await asyncio.wait_for(waiting.wait(), 2)
+        assert api.app.state.engine.pool.checkedout() == 0
+        await asyncio.wait_for(set_user_flag(api.app, "display_name", "Nuevo nombre"), 2)
+    finally:
+        proceed.set()
+        response = await pending
+    assert response.status_code == 200
 
 
 async def test_e1_h2_ca2_locks_the_account_after_five_failed_attempts(api):

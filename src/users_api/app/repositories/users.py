@@ -42,6 +42,10 @@ class UserRepository(ABC):
     async def find_by_email(self, email: str) -> User | None: ...
 
     @abstractmethod
+    async def find_for_login(self, identifier: str, *, email_only: bool) -> User | None:
+        """Read the account and release the read connection before password verification."""
+
+    @abstractmethod
     async def search_user_accounts(
         self, fragment: str, *, cursor: str | None, limit: int
     ) -> tuple[list[User], str | None]:
@@ -84,9 +88,7 @@ class UserRepository(ABC):
         """Persist the changes made to an account already stored."""
 
     @abstractmethod
-    async def record_login(self, user_id: uuid.UUID, at: datetime) -> None:
-        """Note that the account just logged in, touching nothing else.
-
-        Not `update`: that one writes back every column the caller read, so a
-        login racing an administrator's block would put the old status back.
-        """
+    async def record_login(
+        self, user_id: uuid.UUID, at: datetime, *, expected_hash: str, new_hash: str | None
+    ) -> bool:
+        """Record a successful login only while the verified credentials are current."""

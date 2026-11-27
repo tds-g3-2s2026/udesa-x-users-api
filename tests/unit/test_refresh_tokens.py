@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 
 import jwt
 import pytest
+from argon2 import PasswordHasher
 
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import RefreshToken
@@ -25,7 +26,7 @@ from users_api.app.repositories.tokens import (
     RefreshTokenRepository,
 )
 from users_api.app.repositories.users import UserRepository
-from users_api.app.security import hash_password, hash_token, issue_access_token
+from users_api.app.security import hash_token, issue_access_token
 from users_api.app.services.auth import (
     AuthService,
     InvalidRefreshTokenError,
@@ -75,7 +76,7 @@ def build_user(**overrides) -> User:
         "id": uuid.uuid4(),
         "email": "alumno@udesa.edu.ar",
         "handle": "@alumno_01",
-        "password_hash": hash_password(PASSWORD),
+        "password_hash": PasswordHasher().hash(PASSWORD),
         "is_email_verified": True,
     }
     return User(**{**defaults, **overrides})
@@ -101,7 +102,7 @@ def tokens() -> InMemoryRefreshTokens:
 @pytest.fixture
 def users(user) -> AsyncMock:
     repository = AsyncMock(spec=UserRepository)
-    repository.find_by_identifier.return_value = user
+    repository.find_for_login.return_value = user
     repository.get.return_value = user
     return repository
 
@@ -157,7 +158,7 @@ async def test_each_login_starts_a_family_of_its_own(service, tokens):
 
 
 async def test_the_admin_login_hands_out_no_refresh_token(service, tokens, users):
-    users.find_by_email.return_value = build_user(role=Role.SUPERADMIN)
+    users.find_for_login.return_value = build_user(role=Role.SUPERADMIN)
 
     await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
 
@@ -244,7 +245,7 @@ async def test_reusing_a_token_revokes_every_session_of_the_account(
 async def test_reusing_a_token_does_not_touch_other_accounts(service, tokens, users):
     other = build_user(id=uuid.uuid4(), email="otra@udesa.edu.ar", handle="@otra_02")
     mine = await log_in(service)
-    users.find_by_identifier.return_value = other
+    users.find_for_login.return_value = other
     theirs = await log_in(service, identifier="otra@udesa.edu.ar")
     await service.refresh(mine.refresh_token)
 
@@ -378,7 +379,7 @@ async def test_logging_out_ignores_a_refresh_token_nobody_issued(service, tokens
 
 async def test_logging_out_ignores_a_refresh_token_of_another_account(service, tokens, users):
     mine = await log_in(service)
-    users.find_by_identifier.return_value = build_user(
+    users.find_for_login.return_value = build_user(
         id=uuid.uuid4(), email="otra@udesa.edu.ar", handle="@otra_02"
     )
     theirs = await log_in(service, identifier="otra@udesa.edu.ar")

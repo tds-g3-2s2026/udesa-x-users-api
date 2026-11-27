@@ -1,41 +1,100 @@
+import asyncio
 import hashlib
 import logging
 import secrets
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 
 import jwt
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logger = logging.getLogger(__name__)
 
-# argon2id with the library defaults, which follow the OWASP recommendation.
-_hasher = PasswordHasher()
-
-# A dummy hash to verify against when the user does not exist, so that a missing
-# account and a wrong password take the same time. Without this, response timing
-# tells an attacker which emails are registered.
-_DUMMY_HASH = _hasher.hash("not-a-real-password")
+_hasher = PasswordHasher(memory_cost=19 * 1024, time_cost=2, parallelism=1)
+_DUMMY_PASSWORD = "not-a-real-password"
+_DUMMY_HASH = _hasher.hash(_DUMMY_PASSWORD)
+_LEGACY_DUMMY_HASH = PasswordHasher(memory_cost=64 * 1024, time_cost=3, parallelism=4).hash(
+    _DUMMY_PASSWORD
+)
+_running_argon2: set[asyncio.Task[object]] = set()
 
 TOKEN_ALGORITHM = "EdDSA"
 
 
-def hash_password(password: str) -> str:
-    return _hasher.hash(password)
+@lru_cache(maxsize=1)
+def _argon2_slot(_loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
+    return asyncio.Semaphore(1)
 
 
-def verify_password(password: str, password_hash: str | None) -> bool:
-    """Check a password. Passing None still burns the same time on purpose."""
+async def _run_argon2[T](operation: Callable[[], T]) -> T:
+    slot = _argon2_slot(asyncio.get_running_loop())
+    await slot.acquire()
+    work = asyncio.create_task(asyncio.to_thread(operation))
+    _running_argon2.add(work)
+
+    # Argon2 keeps using the slot until the thread finishes, even if the request is cancelled.
+    def release_slot(finished: asyncio.Task[T]) -> None:
+        slot.release()
+        _running_argon2.discard(finished)
+        if not finished.cancelled():
+            finished.exception()
+
+    work.add_done_callback(release_slot)
+    return await asyncio.shield(work)
+
+
+async def hash_password(password: str) -> str:
+    return await _run_argon2(lambda: _hasher.hash(password))
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    return _hasher.check_needs_rehash(password_hash)
+
+
+def _password_matches(password: str, password_hash: str) -> bool:
     try:
-        _hasher.verify(password_hash or _DUMMY_HASH, password)
+        return _hasher.verify(password_hash, password)
     except VerifyMismatchError:
         return False
+
+
+async def verify_password(password: str, password_hash: str | None) -> bool:
+    """Check a password. Passing None still burns the same time on purpose."""
+    candidate = password_hash or _DUMMY_HASH
+    try:
+        matches = await _run_argon2(lambda: _password_matches(password, candidate))
     except Exception:
         return False
-    return password_hash is not None
+    return matches and bool(password_hash)
+
+
+def _login_password_matches(password: str, password_hash: str | None) -> bool:
+    candidate = password_hash or _DUMMY_HASH
+    try:
+        matches = _password_matches(password, candidate)
+    except (InvalidHashError, VerificationError):
+        candidate = _DUMMY_HASH
+        _password_matches(password, candidate)
+        matches = False
+    if matches and password_hash:
+        return True
+
+    # Failed logins spend time on both profiles while either can be stored.
+    dummy = _DUMMY_HASH if password_needs_rehash(candidate) else _LEGACY_DUMMY_HASH
+    _password_matches(password, dummy)
+    return False
+
+
+async def verify_login_password(password: str, password_hash: str | None) -> bool:
+    try:
+        return await _run_argon2(lambda: _login_password_matches(password, password_hash))
+    except Exception:
+        return False
 
 
 def hash_token(raw_token: str) -> str:

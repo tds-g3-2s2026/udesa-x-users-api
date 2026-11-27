@@ -50,7 +50,7 @@ async def test_e5_h2_the_seeded_superadmin_is_verified_and_carries_the_role(serv
     assert created.terms_accepted is True
     # Normalised like registration, so uniqueness stays case-insensitive.
     assert (created.email, created.handle) == ("admin@udesa.edu.ar", "@superadmin")
-    assert verify_password(PASSWORD, created.password_hash)
+    assert await verify_password(PASSWORD, created.password_hash)
 
 
 async def test_e5_h2_the_seed_leaves_an_existing_account_alone(users, service):
@@ -83,7 +83,7 @@ async def test_e5_h1_the_new_administrator_is_born_owing_a_password_change(servi
     assert created.is_email_verified is True
     assert (created.email, created.handle) == ("nueva@udesa.edu.ar", "@moderadora")
     # What comes back is the only copy in clear; what is stored is a hash.
-    assert verify_password(temporary_password, created.password_hash)
+    assert await verify_password(temporary_password, created.password_hash)
     assert temporary_password not in created.password_hash
 
 
