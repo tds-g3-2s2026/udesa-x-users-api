@@ -45,7 +45,7 @@ class PasswordChangeService:
         await check.verify(user, current_password, title=CHANGE_FAILED_TITLE)
 
         # The same rule the reset applies, with the same message.
-        if verify_password(new_password, user.password_hash):
+        if await verify_password(new_password, user.password_hash):
             raise ProblemError(
                 status=400,
                 code="password-unchanged",
@@ -53,7 +53,7 @@ class PasswordChangeService:
                 detail=SAME_PASSWORD,
             )
 
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password(new_password)
         # Whatever brought the account here, from this point on the password
         # is one the owner chose. The deadline goes with it: leaving the date
         # behind would have the panel show an expiry for a password that is

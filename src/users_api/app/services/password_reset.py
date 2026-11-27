@@ -106,7 +106,7 @@ class PasswordResetService:
         user = await self.users.get(token.user_id)
 
         # Checked against the stored hash before replacing it.
-        if verify_password(new_password, user.password_hash):
+        if await verify_password(new_password, user.password_hash):
             raise ProblemError(
                 status=400,
                 code="password-unchanged",
@@ -114,7 +114,7 @@ class PasswordResetService:
                 detail=SAME_PASSWORD,
             )
 
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password(new_password)
         await self.users.update(user)
 
         # The consumed link dies, and so does every other open link of this

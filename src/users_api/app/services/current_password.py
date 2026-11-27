@@ -56,7 +56,7 @@ class CurrentPasswordCheck:
         identifier = str(user.id)
         await self.guard_lockout(identifier, policy)
 
-        if not verify_password(current_password, user.password_hash):
+        if not await verify_password(current_password, user.password_hash):
             await self.rate_limiter.hit(
                 policy.key(identifier), window_seconds=policy.window_seconds
             )

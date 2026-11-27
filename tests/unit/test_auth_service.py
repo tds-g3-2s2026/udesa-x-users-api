@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 
 import jwt
 import pytest
+from argon2 import PasswordHasher
 
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import EmailVerificationToken
@@ -24,7 +25,7 @@ from users_api.app.repositories.tokens import (
     RefreshTokenRepository,
 )
 from users_api.app.repositories.users import UserRepository
-from users_api.app.security import hash_password, hash_token, issue_access_token
+from users_api.app.security import hash_token, issue_access_token
 from users_api.app.services.auth import INVALID_CREDENTIALS, AuthService
 from users_api.config.settings import Settings
 
@@ -50,7 +51,7 @@ def build_user(**overrides) -> User:
         "id": uuid.uuid4(),
         "email": "alumno@udesa.edu.ar",
         "handle": "@alumno_01",
-        "password_hash": hash_password(PASSWORD),
+        "password_hash": PasswordHasher().hash(PASSWORD),
         "is_email_verified": True,
     }
     return User(**{**defaults, **overrides})
@@ -67,7 +68,7 @@ def signing_key():
 def doubles():
     users = AsyncMock(spec=UserRepository)
     users.exists_with_email_or_handle.return_value = False
-    users.find_by_identifier.return_value = None
+    users.find_for_login.return_value = None
     users.find_by_email.return_value = None
     return {
         "users": users,
@@ -283,15 +284,15 @@ async def test_e1_h2_ca2_a_locked_account_is_refused_before_touching_the_databas
     assert raised.value.status == 429
     assert raised.value.headers["Retry-After"] == str(15 * 60)
     # The point of checking the counter first: a locked account costs no query.
-    doubles["users"].find_by_identifier.assert_not_awaited()
+    doubles["users"].find_for_login.assert_not_awaited()
 
 
 async def test_e1_h2_ca3_an_unknown_account_and_a_wrong_password_answer_the_same(service, doubles):
-    doubles["users"].find_by_identifier.return_value = None
+    doubles["users"].find_for_login.return_value = None
     with pytest.raises(ProblemError) as unknown:
         await service.login(identifier="nadie@udesa.edu.ar", password=PASSWORD)
 
-    doubles["users"].find_by_identifier.return_value = build_user()
+    doubles["users"].find_for_login.return_value = build_user()
     with pytest.raises(ProblemError) as wrong_password:
         await service.login(identifier="alumno@udesa.edu.ar", password="Incorrecta1")
 
@@ -312,7 +313,7 @@ async def test_e1_h2_ca2_every_failure_is_counted_even_for_accounts_that_do_not_
 async def test_e1_h2_ca5_a_suspended_account_is_refused_once_the_password_is_proven(
     service, doubles
 ):
-    doubles["users"].find_by_identifier.return_value = build_user(status=AccountStatus.SUSPENDED)
+    doubles["users"].find_for_login.return_value = build_user(status=AccountStatus.SUSPENDED)
 
     with pytest.raises(ProblemError) as raised:
         await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
@@ -322,7 +323,7 @@ async def test_e1_h2_ca5_a_suspended_account_is_refused_once_the_password_is_pro
 
 
 async def test_e1_h2_ca4_an_unvalidated_account_is_pointed_at_the_mailbox(service, doubles):
-    doubles["users"].find_by_identifier.return_value = build_user(is_email_verified=False)
+    doubles["users"].find_for_login.return_value = build_user(is_email_verified=False)
 
     with pytest.raises(ProblemError) as raised:
         await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
@@ -335,7 +336,7 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
     service, doubles, signing_key
 ):
     user = build_user()
-    doubles["users"].find_by_identifier.return_value = user
+    doubles["users"].find_for_login.return_value = user
     service.settings.jwt_issuer = "configured-users-api"
 
     session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
@@ -352,7 +353,7 @@ async def test_e1_h2_ca1_a_valid_login_clears_the_counter_and_returns_a_signed_t
 
 
 async def test_e5_h2_ca1_the_app_login_reports_the_real_role(service, doubles, signing_key):
-    doubles["users"].find_by_identifier.return_value = build_user(role=Role.MODERATOR)
+    doubles["users"].find_for_login.return_value = build_user(role=Role.MODERATOR)
 
     session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
     token = session.access_token
@@ -365,12 +366,12 @@ async def test_e5_h2_ca1_the_admin_login_clears_its_counter_and_signs_the_role(
     service, doubles, signing_key
 ):
     user = build_user(email="admin@udesa.edu.ar", role=Role.SUPERADMIN)
-    doubles["users"].find_by_email.return_value = user
+    doubles["users"].find_for_login.return_value = user
 
     token, expires_in, _ = await service.admin_login(email="Admin@udesa.edu.ar", password=PASSWORD)
 
     # Looked up by the normalised email only: the backoffice has no handle login.
-    doubles["users"].find_by_email.assert_awaited_once_with("admin@udesa.edu.ar")
+    doubles["users"].find_for_login.assert_awaited_once_with("admin@udesa.edu.ar", email_only=True)
     doubles["rate_limiter"].reset.assert_awaited_once_with("admin-login:failed:admin@udesa.edu.ar")
     assert expires_in == 15 * 60
 
@@ -382,7 +383,7 @@ async def test_e5_h2_ca1_the_admin_login_clears_its_counter_and_signs_the_role(
 async def test_e5_h2_ca2_a_regular_user_with_the_right_password_gets_403_and_no_strike(
     service, doubles
 ):
-    doubles["users"].find_by_email.return_value = build_user(role=Role.USER)
+    doubles["users"].find_for_login.return_value = build_user(role=Role.USER)
 
     with pytest.raises(ProblemError) as raised:
         await service.admin_login(email="alumno@udesa.edu.ar", password=PASSWORD)
@@ -396,7 +397,7 @@ async def test_e5_h2_ca2_a_regular_user_with_the_right_password_gets_403_and_no_
 async def test_e5_h2_ca2_an_unverified_administrator_is_not_asked_for_the_mailbox(service, doubles):
     # Administrators are seeded or created by a superadmin, never self-registered,
     # so the verification flag plays no part at this door.
-    doubles["users"].find_by_email.return_value = build_user(
+    doubles["users"].find_for_login.return_value = build_user(
         role=Role.MODERATOR, is_email_verified=False
     )
 
@@ -405,7 +406,7 @@ async def test_e5_h2_ca2_an_unverified_administrator_is_not_asked_for_the_mailbo
 
 
 async def test_e5_h2_ca3_a_wrong_password_counts_against_the_admin_door_only(service, doubles):
-    doubles["users"].find_by_email.return_value = build_user(role=Role.SUPERADMIN)
+    doubles["users"].find_for_login.return_value = build_user(role=Role.SUPERADMIN)
 
     with pytest.raises(ProblemError) as raised:
         await service.admin_login(email="alumno@udesa.edu.ar", password="Incorrecta1")
@@ -425,13 +426,13 @@ async def test_e5_h2_ca3_three_failures_lock_the_admin_door_for_thirty_minutes(s
 
     assert raised.value.status == 429
     assert raised.value.headers["Retry-After"] == str(30 * 60)
-    doubles["users"].find_by_email.assert_not_awaited()
+    doubles["users"].find_for_login.assert_not_awaited()
 
 
 async def test_e5_h2_ca3_three_failures_do_not_lock_the_app_door(service, doubles):
     # Same count, other policy: the app tolerates five.
     doubles["rate_limiter"].count.return_value = 3
-    doubles["users"].find_by_identifier.return_value = build_user()
+    doubles["users"].find_for_login.return_value = build_user()
 
     session = await service.login(identifier="alumno@udesa.edu.ar", password=PASSWORD)
     assert session.access_token
@@ -440,7 +441,7 @@ async def test_e5_h2_ca3_three_failures_do_not_lock_the_app_door(service, double
 async def test_e5_h2_a_suspended_administrator_is_refused_once_the_password_is_proven(
     service, doubles
 ):
-    doubles["users"].find_by_email.return_value = build_user(
+    doubles["users"].find_for_login.return_value = build_user(
         role=Role.MODERATOR, status=AccountStatus.SUSPENDED
     )
 

@@ -153,6 +153,13 @@ class SqlAlchemyUserRepository(UserRepository):
         row = await self.session.scalar(select(UserModel).where(UserModel.email == email))
         return to_domain(row) if row is not None else None
 
+    async def find_for_login(self, identifier: str, *, email_only: bool) -> User | None:
+        async with AsyncSession(bind=self.session.bind) as session:
+            reader = SqlAlchemyUserRepository(session)
+            if email_only:
+                return await reader.find_by_email(identifier)
+            return await reader.find_by_identifier(identifier)
+
     async def search_user_accounts(
         self, fragment: str, *, cursor: str | None, limit: int
     ) -> tuple[list[User], str | None]:
@@ -265,7 +272,15 @@ class SqlAlchemyUserRepository(UserRepository):
         row.interests = [interest.value for interest in user.interests]
         row.onboarding_completed = user.onboarding_completed
 
-    async def record_login(self, user_id: uuid.UUID, at: datetime) -> None:
-        await self.session.execute(
-            sql_update(UserModel).where(UserModel.id == user_id).values(last_login_at=at)
+    async def record_login(
+        self, user_id: uuid.UUID, at: datetime, *, expected_hash: str, new_hash: str | None
+    ) -> bool:
+        statement = (
+            sql_update(UserModel)
+            .where(UserModel.id == user_id, UserModel.password_hash == expected_hash)
+            .values(last_login_at=at)
+            .returning(UserModel.id)
         )
+        if new_hash is not None:
+            statement = statement.values(password_hash=new_hash)
+        return await self.session.scalar(statement) is not None

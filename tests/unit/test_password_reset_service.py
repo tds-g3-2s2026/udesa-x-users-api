@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
+from argon2 import PasswordHasher
 
 from users_api.app.errors import ProblemError
 from users_api.app.models.tokens import PasswordResetToken
@@ -17,7 +18,7 @@ from users_api.app.repositories.tokens import (
     RefreshTokenRepository,
 )
 from users_api.app.repositories.users import UserRepository
-from users_api.app.security import hash_password, hash_token, verify_password
+from users_api.app.security import hash_token, verify_password
 from users_api.app.services.password_reset import PasswordResetService
 from users_api.config.settings import Settings
 
@@ -39,7 +40,7 @@ def build_user(**overrides) -> User:
         "id": uuid.uuid4(),
         "email": "alumno@udesa.edu.ar",
         "handle": "@alumno_01",
-        "password_hash": hash_password(CURRENT_PASSWORD),
+        "password_hash": PasswordHasher().hash(CURRENT_PASSWORD),
         "is_email_verified": True,
     }
     return User(**{**defaults, **overrides})
@@ -182,8 +183,8 @@ async def test_e1_h5_ca3_the_stored_digest_is_replaced_by_the_new_one(service, d
     await service.reset_password("un-token", NEW_PASSWORD)
 
     updated = doubles["users"].update.await_args.args[0]
-    assert verify_password(NEW_PASSWORD, updated.password_hash)
-    assert not verify_password(CURRENT_PASSWORD, updated.password_hash)
+    assert await verify_password(NEW_PASSWORD, updated.password_hash)
+    assert not await verify_password(CURRENT_PASSWORD, updated.password_hash)
 
 
 async def test_e1_h5_ca5_using_one_link_closes_every_other_open_link(service, doubles):

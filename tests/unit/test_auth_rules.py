@@ -1,20 +1,29 @@
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
+from threading import Event
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import jwt
 import pytest
+from argon2 import PasswordHasher, extract_parameters
+from argon2.exceptions import VerifyMismatchError
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 
 from users_api.api.schemas.auth import LoginRequest, RegisterRequest
 from users_api.api.schemas.password_change import ChangePasswordRequest
 from users_api.api.schemas.password_reset import ResetPasswordRequest
+from users_api.app import security
 from users_api.app.security import (
     TOKEN_ALGORITHM,
     hash_password,
     hash_token,
     issue_access_token,
     load_signing_key,
+    password_needs_rehash,
+    verify_login_password,
     verify_password,
 )
 
@@ -77,17 +86,75 @@ def test_e1_h1_ca4_rejects_passwords_outside_policy(password, reason):
         register_payload(password=password)
 
 
-def test_e1_h1_ca4_password_is_hashed_and_never_stored_raw():
-    digest = hash_password("Contrasena1")
+async def test_e1_h1_ca4_password_is_hashed_and_never_stored_raw():
+    digest = await hash_password("Contrasena1")
     assert "Contrasena1" not in digest
     assert digest.startswith("$argon2")
-    assert verify_password("Contrasena1", digest)
-    assert not verify_password("otra", digest)
+    parameters = extract_parameters(digest)
+    assert (parameters.memory_cost, parameters.time_cost, parameters.parallelism) == (19456, 2, 1)
+    assert not password_needs_rehash(digest)
+    assert await verify_password("Contrasena1", digest)
+    assert not await verify_password("otra", digest)
 
 
-def test_e1_h1_ca4_verification_against_a_missing_hash_fails_without_raising():
+async def test_e1_h1_ca4_verification_against_a_missing_hash_fails_without_raising():
     # Used when the account does not exist, so timing does not reveal it.
-    assert not verify_password("Contrasena1", None)
+    assert not await verify_password("Contrasena1", None)
+
+
+async def test_legacy_hashes_still_verify_and_need_rehash():
+    digest = PasswordHasher(memory_cost=65536, time_cost=3, parallelism=4).hash("Contrasena1")
+    assert await verify_login_password("Contrasena1", digest)
+    assert password_needs_rehash(digest)
+
+
+@pytest.mark.parametrize("profile", ["current", "legacy", "missing", "invalid"])
+async def test_e1_h2_ca3_failed_logins_verify_both_argon2_profiles(monkeypatch, profile):
+    hashes = {
+        "current": security._DUMMY_HASH,
+        "legacy": security._LEGACY_DUMMY_HASH,
+        "invalid": "invalid-hash",
+    }
+    work = []
+
+    def verify(_hasher, digest, _password):
+        work.append(extract_parameters(digest).memory_cost)
+        raise VerifyMismatchError
+
+    monkeypatch.setattr(PasswordHasher, "verify", verify)
+
+    assert not await verify_login_password("WrongPassword1", hashes.get(profile))
+    assert sorted(work) == [19456, 65536]
+
+
+async def test_argon2_runs_off_loop_and_keeps_its_slot_after_request_cancellation(monkeypatch):
+    loop = asyncio.get_running_loop()
+    verification_started = asyncio.Event()
+    finish_verification = Event()
+
+    def verify(_digest: str, _password: str) -> bool:
+        loop.call_soon_threadsafe(verification_started.set)
+        return finish_verification.wait(timeout=5)
+
+    to_thread = AsyncMock(wraps=asyncio.to_thread)
+    monkeypatch.setattr(asyncio, "to_thread", to_thread)
+    hasher = SimpleNamespace(verify=verify, hash=lambda _: "digest")
+    monkeypatch.setattr(security, "_hasher", hasher)
+
+    verification = asyncio.create_task(verify_password("password", "old-digest"))
+    try:
+        await asyncio.wait_for(verification_started.wait(), timeout=2)
+        verification.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await verification
+
+        hashing = asyncio.create_task(hash_password("password"))
+        await asyncio.sleep(0)
+        assert to_thread.call_count == 1
+    finally:
+        finish_verification.set()
+
+    assert await asyncio.wait_for(hashing, timeout=2) == "digest"
 
 
 @pytest.mark.parametrize("field", ["email", "handle", "password"])

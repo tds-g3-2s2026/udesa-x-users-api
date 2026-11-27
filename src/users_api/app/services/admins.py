@@ -42,7 +42,7 @@ class AdminService:
             User(
                 email=normalised_email,
                 handle=handle.strip().lower(),
-                password_hash=hash_password(password),
+                password_hash=await hash_password(password),
                 role=Role.SUPERADMIN,
                 # Nobody emails a verification link to the person who deploys
                 # the system: the account is born verified.
@@ -81,7 +81,7 @@ class AdminService:
             User(
                 email=normalised_email,
                 handle=normalised_handle,
-                password_hash=hash_password(temporary_password),
+                password_hash=await hash_password(temporary_password),
                 role=role,
                 # The whole point: the owner did not choose this password and
                 # cannot keep it.
@@ -139,7 +139,7 @@ class AdminService:
             )
 
         temporary_password = generate_temporary_password()
-        user.password_hash = hash_password(temporary_password)
+        user.password_hash = await hash_password(temporary_password)
         user.temporary_password_expires_at = datetime.now(UTC) + timedelta(
             hours=TEMPORARY_PASSWORD_HOURS
         )
